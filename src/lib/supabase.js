@@ -8,7 +8,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 })
 
 // ── User Creation via Netlify Function ──────────────────────
-export async function createUser({ email, fullName, phone, nic, role, address, emergencyContactName, emergencyContactPhone }) {
+export async function createUser({ username, password, email, fullName, phone, nic, role, address, emergencyContactName, emergencyContactPhone, landlordId }) {
   const { data: { session } } = await supabase.auth.getSession()
   const token = session?.access_token
   if (!token) throw new Error('Not authenticated')
@@ -16,7 +16,7 @@ export async function createUser({ email, fullName, phone, nic, role, address, e
   const res = await fetch('/.netlify/functions/create-user', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ email, fullName, phone, nic, role, address, emergencyContactName, emergencyContactPhone })
+    body: JSON.stringify({ username, password, email, fullName, phone, nic, role, address, emergencyContactName, emergencyContactPhone, landlordId })
   })
   const json = await res.json()
   if (!res.ok) throw new Error(json.error || 'Failed to create user')
