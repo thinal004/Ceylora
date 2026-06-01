@@ -1,67 +1,90 @@
 -- ============================================================
--- CEYLORA TENANT MANAGER — Supabase Schema
--- Paste this entire file into Supabase SQL Editor and Run
+-- CEYLORA RENT MANAGEMENT SYSTEM — Full Schema v2.0
+-- DROP everything and recreate clean
+-- Run this in Supabase SQL Editor
 -- ============================================================
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================
+-- DROP EXISTING (clean slate)
+-- ============================================================
+DROP TABLE IF EXISTS public.audit_logs         CASCADE;
+DROP TABLE IF EXISTS public.maintenance_requests CASCADE;
+DROP TABLE IF EXISTS public.leases             CASCADE;
+DROP TABLE IF EXISTS public.payments           CASCADE;
+DROP TABLE IF EXISTS public.tenancies          CASCADE;
+DROP TABLE IF EXISTS public.units              CASCADE;
+DROP TABLE IF EXISTS public.properties         CASCADE;
+DROP TABLE IF EXISTS public.profiles           CASCADE;
+DROP VIEW  IF EXISTS public.landlord_dashboard CASCADE;
+DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
+DROP FUNCTION IF EXISTS public.handle_updated_at CASCADE;
+
+-- ============================================================
 -- PROFILES
--- Extends Supabase auth.users with role + display info
 -- ============================================================
 CREATE TABLE public.profiles (
-  id            UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  role          TEXT NOT NULL CHECK (role IN ('landlord', 'tenant')),
-  full_name     TEXT NOT NULL,
-  phone         TEXT,
-  nic           TEXT,                    -- Sri Lanka National Identity Card
-  created_at    TIMESTAMPTZ DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ DEFAULT NOW()
+  id                       UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  role                     TEXT NOT NULL CHECK (role IN ('super_admin','landlord','tenant')),
+  full_name                TEXT NOT NULL,
+  phone                    TEXT,
+  nic                      TEXT,
+  address                  TEXT,
+  emergency_contact_name   TEXT,
+  emergency_contact_phone  TEXT,
+  is_active                BOOLEAN DEFAULT TRUE,
+  created_at               TIMESTAMPTZ DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
 -- PROPERTIES
--- A landlord can own multiple properties
 -- ============================================================
 CREATE TABLE public.properties (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   landlord_id   UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  name          TEXT NOT NULL,           -- e.g. "Perera Residencies"
+  property_code TEXT,
+  name          TEXT NOT NULL,
   address       TEXT NOT NULL,
   city          TEXT NOT NULL,
-  district      TEXT,                    -- Sri Lanka district
+  district      TEXT,
+  country       TEXT DEFAULT 'Sri Lanka',
+  property_type TEXT DEFAULT 'Residential',
+  is_active     BOOLEAN DEFAULT TRUE,
   created_at    TIMESTAMPTZ DEFAULT NOW(),
   updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
 -- UNITS
--- Each property has multiple rentable units
 -- ============================================================
 CREATE TABLE public.units (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  property_id   UUID NOT NULL REFERENCES public.properties(id) ON DELETE CASCADE,
-  unit_number   TEXT NOT NULL,           -- e.g. "Unit 3A", "Room 2"
-  floor         TEXT,
-  monthly_rent  NUMERIC(12,2) NOT NULL,
-  is_occupied   BOOLEAN DEFAULT FALSE,
-  description   TEXT,
-  created_at    TIMESTAMPTZ DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ DEFAULT NOW()
+  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  property_id          UUID NOT NULL REFERENCES public.properties(id) ON DELETE CASCADE,
+  unit_number          TEXT NOT NULL,
+  floor                TEXT,
+  monthly_rent         NUMERIC(12,2) NOT NULL,
+  electricity_charges  NUMERIC(12,2) DEFAULT 0,
+  water_charges        NUMERIC(12,2) DEFAULT 0,
+  deposit_amount       NUMERIC(12,2) DEFAULT 0,
+  is_occupied          BOOLEAN DEFAULT FALSE,
+  description          TEXT,
+  created_at           TIMESTAMPTZ DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
 -- TENANCIES
--- Links a tenant profile to a unit, with date range
 -- ============================================================
 CREATE TABLE public.tenancies (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   unit_id         UUID NOT NULL REFERENCES public.units(id) ON DELETE CASCADE,
   tenant_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   start_date      DATE NOT NULL,
-  end_date        DATE,                  -- NULL = currently active
-  monthly_rent    NUMERIC(12,2) NOT NULL,-- can differ from unit base rent
+  end_date        DATE,
+  monthly_rent    NUMERIC(12,2) NOT NULL,
   deposit_amount  NUMERIC(12,2) DEFAULT 0,
   is_active       BOOLEAN DEFAULT TRUE,
   notes           TEXT,
@@ -72,20 +95,20 @@ CREATE TABLE public.tenancies (
 
 -- ============================================================
 -- PAYMENTS
--- Rent payments submitted by tenant or marked by landlord
 -- ============================================================
 CREATE TABLE public.payments (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenancy_id      UUID NOT NULL REFERENCES public.tenancies(id) ON DELETE CASCADE,
-  period_year     INT NOT NULL,          -- e.g. 2025
+  period_year     INT NOT NULL,
   period_month    INT NOT NULL CHECK (period_month BETWEEN 1 AND 12),
   amount          NUMERIC(12,2) NOT NULL,
   paid_date       DATE,
+  payment_method  TEXT DEFAULT 'Bank Transfer',
   status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'confirmed', 'overdue')),
-  submitted_by    TEXT NOT NULL CHECK (submitted_by IN ('tenant', 'landlord')),
-  receipt_url     TEXT,                  -- Supabase Storage URL
-  receipt_path    TEXT,                  -- Storage bucket path (for deletion)
+                    CHECK (status IN ('pending','confirmed','overdue')),
+  submitted_by    TEXT NOT NULL CHECK (submitted_by IN ('tenant','landlord')),
+  receipt_url     TEXT,
+  receipt_path    TEXT,
   note            TEXT,
   confirmed_at    TIMESTAMPTZ,
   confirmed_by    UUID REFERENCES public.profiles(id),
@@ -95,16 +118,65 @@ CREATE TABLE public.payments (
 );
 
 -- ============================================================
--- INDEXES for performance
+-- LEASES (schema ready — feature available soon)
 -- ============================================================
-CREATE INDEX idx_properties_landlord ON public.properties(landlord_id);
-CREATE INDEX idx_units_property ON public.units(property_id);
-CREATE INDEX idx_tenancies_unit ON public.tenancies(unit_id);
-CREATE INDEX idx_tenancies_tenant ON public.tenancies(tenant_id);
-CREATE INDEX idx_tenancies_active ON public.tenancies(is_active);
-CREATE INDEX idx_payments_tenancy ON public.payments(tenancy_id);
-CREATE INDEX idx_payments_period ON public.payments(period_year, period_month);
-CREATE INDEX idx_payments_status ON public.payments(status);
+CREATE TABLE public.leases (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenancy_id      UUID NOT NULL REFERENCES public.tenancies(id) ON DELETE CASCADE,
+  lease_number    TEXT,
+  start_date      DATE NOT NULL,
+  end_date        DATE,
+  monthly_rent    NUMERIC(12,2) NOT NULL,
+  deposit_amount  NUMERIC(12,2) DEFAULT 0,
+  status          TEXT DEFAULT 'active' CHECK (status IN ('active','expired','terminated')),
+  document_path   TEXT,
+  notes           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- MAINTENANCE REQUESTS (schema ready — feature available soon)
+-- ============================================================
+CREATE TABLE public.maintenance_requests (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenancy_id  UUID NOT NULL REFERENCES public.tenancies(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  description TEXT,
+  status      TEXT DEFAULT 'open' CHECK (status IN ('open','in_progress','completed','cancelled')),
+  image_path  TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- AUDIT LOGS
+-- ============================================================
+CREATE TABLE public.audit_logs (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID REFERENCES public.profiles(id),
+  tenant_id   UUID REFERENCES public.profiles(id),
+  action      TEXT NOT NULL,
+  entity      TEXT,
+  entity_id   UUID,
+  details     JSONB,
+  ip_address  TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- INDEXES
+-- ============================================================
+CREATE INDEX idx_properties_landlord    ON public.properties(landlord_id);
+CREATE INDEX idx_units_property         ON public.units(property_id);
+CREATE INDEX idx_tenancies_unit         ON public.tenancies(unit_id);
+CREATE INDEX idx_tenancies_tenant       ON public.tenancies(tenant_id);
+CREATE INDEX idx_tenancies_active       ON public.tenancies(is_active);
+CREATE INDEX idx_payments_tenancy       ON public.payments(tenancy_id);
+CREATE INDEX idx_payments_period        ON public.payments(period_year, period_month);
+CREATE INDEX idx_payments_status        ON public.payments(status);
+CREATE INDEX idx_audit_logs_user        ON public.audit_logs(user_id);
+CREATE INDEX idx_audit_logs_created     ON public.audit_logs(created_at);
 
 -- ============================================================
 -- UPDATED_AT TRIGGER
@@ -114,124 +186,31 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_profiles_updated_at   BEFORE UPDATE ON public.profiles   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER trg_properties_updated_at BEFORE UPDATE ON public.properties FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER trg_units_updated_at      BEFORE UPDATE ON public.units      FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER trg_tenancies_updated_at  BEFORE UPDATE ON public.tenancies  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER trg_payments_updated_at   BEFORE UPDATE ON public.payments   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- ============================================================
--- ROW LEVEL SECURITY (RLS)
--- ============================================================
-ALTER TABLE public.profiles   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.properties ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.units      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tenancies  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payments   ENABLE ROW LEVEL SECURITY;
-
--- PROFILES
-CREATE POLICY "Users can view own profile"
-  ON public.profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Users can update own profile"
-  ON public.profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Landlords can view tenant profiles"
-  ON public.profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.tenancies ten
-      JOIN public.units u ON u.id = ten.unit_id
-      JOIN public.properties p ON p.id = u.property_id
-      WHERE ten.tenant_id = profiles.id
-        AND p.landlord_id = auth.uid()
-    )
-  );
-
--- PROPERTIES — landlord only
-CREATE POLICY "Landlords manage own properties"
-  ON public.properties FOR ALL USING (landlord_id = auth.uid());
-
--- UNITS — landlord owns, tenant can view their unit
-CREATE POLICY "Landlords manage own units"
-  ON public.units FOR ALL
-  USING (
-    EXISTS (SELECT 1 FROM public.properties p WHERE p.id = property_id AND p.landlord_id = auth.uid())
-  );
-CREATE POLICY "Tenants view their unit"
-  ON public.units FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.tenancies ten
-      WHERE ten.unit_id = units.id AND ten.tenant_id = auth.uid() AND ten.is_active = TRUE
-    )
-  );
-
--- TENANCIES
-CREATE POLICY "Landlords manage tenancies in own properties"
-  ON public.tenancies FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.units u
-      JOIN public.properties p ON p.id = u.property_id
-      WHERE u.id = unit_id AND p.landlord_id = auth.uid()
-    )
-  );
-CREATE POLICY "Tenants view own tenancies"
-  ON public.tenancies FOR SELECT USING (tenant_id = auth.uid());
-
--- PAYMENTS
-CREATE POLICY "Landlords manage payments in own properties"
-  ON public.payments FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.tenancies ten
-      JOIN public.units u ON u.id = ten.unit_id
-      JOIN public.properties p ON p.id = u.property_id
-      WHERE ten.id = tenancy_id AND p.landlord_id = auth.uid()
-    )
-  );
-CREATE POLICY "Tenants manage own payments"
-  ON public.payments FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.tenancies ten
-      WHERE ten.id = tenancy_id AND ten.tenant_id = auth.uid()
-    )
-  );
-
--- ============================================================
--- STORAGE BUCKET for receipts
--- Run this in Supabase SQL Editor as well
--- ============================================================
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('receipts', 'receipts', false)
-ON CONFLICT DO NOTHING;
-
-CREATE POLICY "Authenticated users upload receipts"
-  ON storage.objects FOR INSERT
-  WITH CHECK (bucket_id = 'receipts' AND auth.role() = 'authenticated');
-
-CREATE POLICY "Users access own receipts"
-  ON storage.objects FOR SELECT
-  USING (
-    bucket_id = 'receipts' AND auth.role() = 'authenticated'
-  );
-
-CREATE POLICY "Users delete own receipts"
-  ON storage.objects FOR DELETE
-  USING (bucket_id = 'receipts' AND auth.uid()::text = (storage.foldername(name))[1]);
+CREATE TRIGGER trg_profiles_updated_at          BEFORE UPDATE ON public.profiles          FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER trg_properties_updated_at        BEFORE UPDATE ON public.properties        FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER trg_units_updated_at             BEFORE UPDATE ON public.units             FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER trg_tenancies_updated_at         BEFORE UPDATE ON public.tenancies         FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER trg_payments_updated_at          BEFORE UPDATE ON public.payments          FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER trg_leases_updated_at            BEFORE UPDATE ON public.leases            FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER trg_maintenance_updated_at       BEFORE UPDATE ON public.maintenance_requests FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- ============================================================
 -- NEW USER TRIGGER
--- Auto-creates a profile row when a user signs up
+-- Auto-creates profile when a user is created via admin API
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, role, full_name)
+  INSERT INTO public.profiles (id, role, full_name, phone, nic, address, emergency_contact_name, emergency_contact_phone)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'role', 'tenant'),
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email)
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
+    COALESCE(NEW.raw_user_meta_data->>'phone', NULL),
+    COALESCE(NEW.raw_user_meta_data->>'nic', NULL),
+    COALESCE(NEW.raw_user_meta_data->>'address', NULL),
+    COALESCE(NEW.raw_user_meta_data->>'emergency_contact_name', NULL),
+    COALESCE(NEW.raw_user_meta_data->>'emergency_contact_phone', NULL)
   );
   RETURN NEW;
 END;
@@ -242,16 +221,125 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ============================================================
--- HELPER VIEW: Dashboard summary per landlord
+-- ROW LEVEL SECURITY
 -- ============================================================
-CREATE OR REPLACE VIEW public.landlord_dashboard AS
-SELECT
-  p.landlord_id,
-  COUNT(DISTINCT p.id)                                          AS total_properties,
-  COUNT(DISTINCT u.id)                                          AS total_units,
-  COUNT(DISTINCT CASE WHEN u.is_occupied THEN u.id END)         AS occupied_units,
-  COUNT(DISTINCT CASE WHEN NOT u.is_occupied THEN u.id END)     AS vacant_units,
-  COALESCE(SUM(DISTINCT CASE WHEN u.is_occupied THEN u.monthly_rent END), 0) AS total_monthly_rent
-FROM public.properties p
-LEFT JOIN public.units u ON u.property_id = p.id
-GROUP BY p.landlord_id;
+ALTER TABLE public.profiles             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.properties           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.units                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tenancies            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.leases               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.maintenance_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs           ENABLE ROW LEVEL SECURITY;
+
+-- ── PROFILES ──
+CREATE POLICY "Users view own profile"
+  ON public.profiles FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Users update own profile"
+  ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Super admin full access to profiles"
+  ON public.profiles FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'super_admin'));
+
+CREATE POLICY "Landlords view their tenants"
+  ON public.profiles FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.tenancies ten
+      JOIN public.units u ON u.id = ten.unit_id
+      JOIN public.properties prop ON prop.id = u.property_id
+      WHERE ten.tenant_id = profiles.id AND prop.landlord_id = auth.uid()
+    )
+  );
+
+-- ── PROPERTIES ──
+CREATE POLICY "Landlords manage own properties"
+  ON public.properties FOR ALL USING (landlord_id = auth.uid());
+
+CREATE POLICY "Super admin view all properties"
+  ON public.properties FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'super_admin'));
+
+-- ── UNITS ──
+CREATE POLICY "Landlords manage own units"
+  ON public.units FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.properties p WHERE p.id = property_id AND p.landlord_id = auth.uid()));
+
+CREATE POLICY "Tenants view their unit"
+  ON public.units FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.tenancies t WHERE t.unit_id = units.id AND t.tenant_id = auth.uid() AND t.is_active = TRUE));
+
+CREATE POLICY "Super admin view all units"
+  ON public.units FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'super_admin'));
+
+-- ── TENANCIES ──
+CREATE POLICY "Landlords manage their tenancies"
+  ON public.tenancies FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.units u JOIN public.properties p ON p.id = u.property_id WHERE u.id = unit_id AND p.landlord_id = auth.uid()));
+
+CREATE POLICY "Tenants view own tenancies"
+  ON public.tenancies FOR SELECT USING (tenant_id = auth.uid());
+
+CREATE POLICY "Super admin view all tenancies"
+  ON public.tenancies FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'super_admin'));
+
+-- ── PAYMENTS ──
+CREATE POLICY "Landlords manage payments in own properties"
+  ON public.payments FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.tenancies t JOIN public.units u ON u.id = t.unit_id JOIN public.properties p ON p.id = u.property_id WHERE t.id = tenancy_id AND p.landlord_id = auth.uid()));
+
+CREATE POLICY "Tenants manage own payments"
+  ON public.payments FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.tenancies t WHERE t.id = tenancy_id AND t.tenant_id = auth.uid()));
+
+CREATE POLICY "Super admin view all payments"
+  ON public.payments FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'super_admin'));
+
+-- ── AUDIT LOGS ──
+CREATE POLICY "Super admin view all audit logs"
+  ON public.audit_logs FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'super_admin'));
+
+CREATE POLICY "System can insert audit logs"
+  ON public.audit_logs FOR INSERT WITH CHECK (true);
+
+-- ── LEASES & MAINTENANCE ──
+CREATE POLICY "Landlords manage leases"
+  ON public.leases FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.tenancies t JOIN public.units u ON u.id = t.unit_id JOIN public.properties p ON p.id = u.property_id WHERE t.id = tenancy_id AND p.landlord_id = auth.uid()));
+
+CREATE POLICY "Tenants view own leases"
+  ON public.leases FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.tenancies t WHERE t.id = tenancy_id AND t.tenant_id = auth.uid()));
+
+CREATE POLICY "Landlords manage maintenance"
+  ON public.maintenance_requests FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.tenancies t JOIN public.units u ON u.id = t.unit_id JOIN public.properties p ON p.id = u.property_id WHERE t.id = tenancy_id AND p.landlord_id = auth.uid()));
+
+CREATE POLICY "Tenants manage own maintenance"
+  ON public.maintenance_requests FOR ALL
+  USING (EXISTS (SELECT 1 FROM public.tenancies t WHERE t.id = tenancy_id AND t.tenant_id = auth.uid()));
+
+-- ============================================================
+-- STORAGE BUCKET for receipts
+-- ============================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('receipts', 'receipts', false)
+ON CONFLICT DO NOTHING;
+
+CREATE POLICY "Authenticated users upload receipts"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'receipts' AND auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated users view receipts"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'receipts' AND auth.role() = 'authenticated');
+
+CREATE POLICY "Users delete own receipts"
+  ON storage.objects FOR DELETE
+  USING (bucket_id = 'receipts' AND auth.uid()::text = (storage.foldername(name))[1]);

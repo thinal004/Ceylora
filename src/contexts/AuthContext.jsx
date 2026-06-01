@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext({})
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
+  const [user, setUser]       = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -36,18 +36,6 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  async function signUp(email, password, fullName, role, phone, nic) {
-    const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: fullName, role } }
-    })
-    if (error) throw error
-    if (data.user) {
-      await supabase.from('profiles').update({ phone, nic }).eq('id', data.user.id)
-    }
-    return data
-  }
-
   async function signOut() {
     await supabase.auth.signOut()
   }
@@ -56,8 +44,15 @@ export function AuthProvider({ children }) {
     if (user) await fetchProfile(user.id)
   }
 
+  async function updateProfile(updates) {
+    if (!user) return
+    const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+    if (error) throw error
+    await fetchProfile(user.id)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, refreshProfile, updateProfile }}>
       {children}
     </AuthContext.Provider>
   )
