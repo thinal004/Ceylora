@@ -1,0 +1,228 @@
+import { useEffect, useState } from 'react'
+import { useAuth } from '../../contexts/AuthContext'
+import { supabase, uploadReceipt, getSignedReceiptUrl } from '../../lib/supabase'
+import { StatCard } from '../../components/ui/Card'
+import PageHeader from '../../components/ui/PageHeader'
+import Button from '../../components/ui/Button'
+import Modal from '../../components/ui/Modal'
+import { Input } from '../../components/ui/Input'
+import Badge from '../../components/ui/Badge'
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const LKR = n => `LKR ${Number(n || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`
+
+export default function TenantOverview() {
+  const { profile } = useAuth()
+  const [tenancy, setTenancy] = useState(null)
+  const [payments, setPayments] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [payModal, setPayModal] = useState(null) // { month, year }
+  const [receiptModal, setReceiptModal] = useState(null)
+  const [receiptUrl, setReceiptUrl] = useState(null)
+  const [form, setForm] = useState({ amount: '', paid_date: '', note: '', file: null })
+  const [uploading, setUploading] = useState(false)
+  const [err, setErr] = useState('')
+
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  useEffect(() => { fetchData() }, [])
+
+  async function fetchData() {
+    const { data: ten } = await supabase.from('tenancies')
+      .select('*, units(unit_number, monthly_rent, properties(name, address))')
+      .eq('tenant_id', profile.id)
+      .eq('is_active', true)
+      .single()
+
+    if (!ten) { setLoading(false); return }
+    setTenancy(ten)
+
+    const { data: pays } = await supabase.from('payments')
+      .select('*')
+      .eq('tenancy_id', ten.id)
+      .order('period_year', { ascending: false })
+      .order('period_month', { ascending: false })
+
+    setPayments(pays || [])
+    setLoading(false)
+  }
+
+  function getPayment(year, month) {
+    return payments.find(p => p.period_year === year && p.period_month === month)
+  }
+
+  function openPayModal(month, year) {
+    const existing = getPayment(year, month)
+    setErr('')
+    setForm({
+      amount: existing?.amount || tenancy?.monthly_rent || '',
+      paid_date: existing?.paid_date || now.toISOString().split('T')[0],
+      note: existing?.note || '',
+      file: null,
+    })
+    setPayModal({ month, year })
+  }
+
+  async function submitPayment() {
+    if (!form.amount || !form.paid_date) { setErr('Amount and date are required.'); return }
+    setUploading(true); setErr('')
+    try {
+      let receiptPath = null
+      if (form.file) {
+        if (form.file.size > 5 * 1024 * 1024) { setErr('File must be under 5MB.'); setUploading(false); return }
+        const { path } = await uploadReceipt(form.file, tenancy.id, payModal.year, payModal.month)
+        receiptPath = path
+      }
+      const existing = getPayment(payModal.year, payModal.month)
+      const payload = {
+        tenancy_id: tenancy.id,
+        period_year: payModal.year,
+        period_month: payModal.month,
+        amount: parseFloat(form.amount),
+        paid_date: form.paid_date,
+        note: form.note,
+        status: 'pending',
+        submitted_by: 'tenant',
+        ...(receiptPath && { receipt_path: receiptPath }),
+      }
+      if (existing) {
+        await supabase.from('payments').update(payload).eq('id', existing.id)
+      } else {
+        await supabase.from('payments').insert(payload)
+      }
+      setPayModal(null); fetchData()
+    } catch (e) {
+      setErr(e.message || 'Upload failed.')
+    }
+    setUploading(false)
+  }
+
+  async function openReceipt(p) {
+    setReceiptModal(p); setReceiptUrl(null)
+    if (p.receipt_path) {
+      try { const url = await getSignedReceiptUrl(p.receipt_path); setReceiptUrl(url) } catch {}
+    }
+  }
+
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}><div style={{ width: 32, height: 32, border: '2px solid var(--border)', borderTopColor: 'var(--accent2)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>
+
+  if (!tenancy) return (
+    <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>🏠</div>
+      <p style={{ fontWeight: 500, marginBottom: 6 }}>No active tenancy</p>
+      <p style={{ color: 'var(--text2)', fontSize: 14 }}>Your landlord hasn't assigned you to a unit yet. Please contact them.</p>
+    </div>
+  )
+
+  const paidMonths = payments.filter(p => p.status === 'confirmed').length
+  const totalPaid = payments.filter(p => p.status === 'confirmed').reduce((s, p) => s + Number(p.amount), 0)
+  const currentPay = getPayment(currentYear, currentMonth)
+
+  return (
+    <div>
+      <PageHeader
+        title={tenancy.units?.unit_number}
+        sub={`${tenancy.units?.properties?.name} · ${tenancy.units?.properties?.address}`}
+      />
+
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: '2rem' }}>
+        <StatCard delay={1} label="Monthly Rent" value={LKR(tenancy.monthly_rent)} color="accent" />
+        <StatCard delay={2} label="Months Paid" value={`${paidMonths} / 12`} color="green" sub={currentYear.toString()} />
+        <StatCard delay={3} label="Total Paid" value={LKR(totalPaid)} color="green" sub={currentYear.toString()} />
+        <StatCard delay={4} label="This Month" value={currentPay?.status === 'confirmed' ? '✓ Paid' : currentPay?.status === 'pending' ? 'Pending' : 'Not Paid'}
+          color={currentPay?.status === 'confirmed' ? 'green' : currentPay?.status === 'pending' ? 'amber' : 'red'} />
+      </div>
+
+      {/* Month Grid */}
+      <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: '1.2rem', fontWeight: 400, marginBottom: '1rem' }}>{currentYear} Payment Status</h2>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {MONTHS.map((monthName, idx) => {
+          const month = idx + 1
+          const pay = getPayment(currentYear, month)
+          const isFuture = month > currentMonth
+          const badgeV = pay?.status === 'confirmed' ? 'green' : pay?.status === 'pending' ? 'amber' : isFuture ? 'default' : 'red'
+          const badgeL = pay?.status === 'confirmed' ? `✓ Paid — ${LKR(pay.amount)}` : pay?.status === 'pending' ? '⏳ Awaiting confirmation' : isFuture ? 'Upcoming' : '✗ Not paid'
+
+          return (
+            <div key={month} className={`fade-up fade-up-${Math.min(idx + 1, 7)}`} style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-lg)', padding: '1rem 1.25rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: '1rem', flexWrap: 'wrap', boxShadow: 'var(--shadow)',
+            }}>
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 15 }}>{monthName} {currentYear}</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
+                  {pay?.paid_date ? `Paid on ${new Date(pay.paid_date).toLocaleDateString('en-LK')}` : isFuture ? 'Not due yet' : 'Not paid'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Badge variant={badgeV}>{badgeL}</Badge>
+                {pay?.status === 'confirmed' && pay.receipt_path && (
+                  <Button size="sm" variant="ghost" onClick={() => openReceipt(pay)}>View Receipt</Button>
+                )}
+                {pay?.status !== 'confirmed' && !isFuture && (
+                  <Button size="sm" onClick={() => openPayModal(month, currentYear)}>
+                    {pay?.status === 'pending' ? 'Update' : 'Pay Now'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Submit Payment Modal */}
+      <Modal open={!!payModal} onClose={() => setPayModal(null)}
+        title={`Submit Payment — ${payModal ? MONTHS[payModal.month - 1] + ' ' + payModal.year : ''}`}>
+        <div style={{ background: 'var(--blue-bg)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: '1rem', fontSize: 13, color: 'var(--blue-text)' }}>
+          ℹ️ Your landlord will confirm this payment. It will show as "Awaiting confirmation" until they approve.
+        </div>
+        <Input label="Amount Paid (LKR) *" type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+        <Input label="Payment Date *" type="date" value={form.paid_date} onChange={e => setForm(f => ({ ...f, paid_date: e.target.value }))} />
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text2)', marginBottom: 5 }}>Upload Receipt (optional)</label>
+          <input type="file" accept="image/*,application/pdf"
+            onChange={e => setForm(f => ({ ...f, file: e.target.files[0] }))}
+            style={{ fontSize: 13, padding: '8px 0', width: '100%' }} />
+          <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>JPG, PNG or PDF · Max 5MB · Both landlord and tenant can view</p>
+        </div>
+        <Input label="Note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="e.g. Bank transfer ref #123456" />
+        {err && <div style={{ background: 'var(--red-bg)', color: 'var(--red-text)', fontSize: 13, padding: '10px 14px', borderRadius: 'var(--radius)', marginBottom: 12 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button fullWidth loading={uploading} variant="success" onClick={submitPayment}>Submit Payment</Button>
+          <Button variant="ghost" onClick={() => setPayModal(null)}>Cancel</Button>
+        </div>
+      </Modal>
+
+      {/* View Receipt Modal */}
+      <Modal open={!!receiptModal} onClose={() => setReceiptModal(null)} title="Payment Receipt">
+        {receiptModal && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: '1rem' }}>
+              {[
+                ['Month', `${MONTHS[receiptModal.period_month - 1]} ${receiptModal.period_year}`],
+                ['Amount', LKR(receiptModal.amount)],
+                ['Date Paid', receiptModal.paid_date ? new Date(receiptModal.paid_date).toLocaleDateString('en-LK') : '—'],
+                ['Status', receiptModal.status],
+              ].map(([l, v]) => (
+                <div key={l} style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '8px 12px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{l}</div>
+                  <div style={{ fontWeight: 500, marginTop: 2 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {receiptModal.note && <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: '1rem' }}>Note: {receiptModal.note}</p>}
+            {receiptModal.receipt_path ? (
+              receiptUrl ? <img src={receiptUrl} alt="Receipt" style={{ maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
+              : <p style={{ color: 'var(--text3)', fontSize: 13 }}>Loading receipt image...</p>
+            ) : <p style={{ color: 'var(--text3)', fontSize: 13 }}>No receipt uploaded.</p>}
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
