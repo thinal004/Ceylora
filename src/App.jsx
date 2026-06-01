@@ -27,7 +27,7 @@ function PrivateRoute({ children, role }) {
   const { user, profile, loading } = useAuth()
   if (loading) return <FullScreenLoader />
   if (!user)   return <Navigate to="/login" replace />
-  if (!profile?.is_active) return (
+  if (profile && profile.is_active === false) return (
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg)', padding:'2rem' }}>
       <div style={{ textAlign:'center', maxWidth:400 }}>
         <div style={{ fontSize:48, marginBottom:12 }}>🔒</div>
