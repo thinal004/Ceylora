@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
-import Login from './pages/Login'
+import Login          from './pages/Login'
+import ChangePassword from './pages/ChangePassword'
 
 import AdminLayout    from './pages/admin/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
@@ -27,6 +28,10 @@ function PrivateRoute({ children, role }) {
   const { user, profile, loading } = useAuth()
   if (loading) return <FullScreenLoader />
   if (!user)   return <Navigate to="/login" replace />
+
+  // Force password change on first login
+  if (profile?.must_change_password) return <ChangePassword />
+
   if (profile && profile.is_active === false) return (
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg)', padding:'2rem' }}>
       <div style={{ textAlign:'center', maxWidth:400 }}>

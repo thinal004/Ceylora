@@ -29,12 +29,16 @@ CREATE TABLE public.profiles (
   id                       UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role                     TEXT NOT NULL CHECK (role IN ('super_admin','landlord','tenant')),
   full_name                TEXT NOT NULL,
+  username                 TEXT,
+  landlord_id              UUID REFERENCES public.profiles(id),
   phone                    TEXT,
+  email                    TEXT,
   nic                      TEXT,
   address                  TEXT,
   emergency_contact_name   TEXT,
   emergency_contact_phone  TEXT,
   is_active                BOOLEAN DEFAULT TRUE,
+  must_change_password     BOOLEAN DEFAULT FALSE,
   created_at               TIMESTAMPTZ DEFAULT NOW(),
   updated_at               TIMESTAMPTZ DEFAULT NOW()
 );

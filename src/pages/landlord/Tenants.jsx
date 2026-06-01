@@ -24,7 +24,7 @@ export default function Tenants() {
 
   // Create tenant form
   const [createForm, setCreateForm] = useState({
-    full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:''
+    username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:''
   })
 
   // Assign tenancy form
@@ -63,7 +63,7 @@ export default function Tenants() {
   }
 
   function openCreateModal() {
-    setCreateForm({ full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'' })
+    setCreateForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'' })
     setErr(''); setSuccessMsg(''); setModal('create')
   }
 
@@ -73,12 +73,15 @@ export default function Tenants() {
   }
 
   async function handleCreateTenant() {
-    if (!createForm.full_name || !createForm.email) { setErr('Full name and email are required.'); return }
+    if (!createForm.username || !createForm.password || !createForm.full_name) { setErr('Username, password and full name are required.'); return }
+    if (createForm.password.length < 6) { setErr('Password must be at least 6 characters.'); return }
     setSaving(true); setErr(''); setSuccessMsg('')
     try {
       await createUser({
-        email: createForm.email,
+        username: createForm.username,
+        password: createForm.password,
         fullName: createForm.full_name,
+        email: createForm.email,
         phone: createForm.phone,
         nic: createForm.nic,
         role: 'tenant',
@@ -86,8 +89,8 @@ export default function Tenants() {
         emergencyContactName: createForm.emergency_contact_name,
         emergencyContactPhone: createForm.emergency_contact_phone,
       })
-      setSuccessMsg(`✓ Tenant account created! A password setup email has been sent to ${createForm.email}.`)
-      setCreateForm({ full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'' })
+      setSuccessMsg(`✓ Tenant account created! Username: ${createForm.username}`)
+      setCreateForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'' })
       fetchData()
     } catch (e) {
       setErr(e.message || 'Failed to create tenant.')
@@ -173,7 +176,7 @@ export default function Tenants() {
       {/* Create Tenant Modal */}
       <Modal open={modal === 'create'} onClose={() => setModal(false)} title="Create Tenant Account" maxWidth={520}>
         <div style={{ background:'var(--blue-bg)', borderRadius:'var(--radius)', padding:'10px 14px', marginBottom:'1rem', fontSize:13, color:'var(--blue-text)' }}>
-          ℹ️ A password setup email will be sent to the tenant. After creating, use "Assign Unit" to link them to a unit.
+          ℹ️ Set a username and temporary password. The tenant will be asked to change their password on first login.
         </div>
         {successMsg ? (
           <div>
@@ -186,8 +189,12 @@ export default function Tenants() {
         ) : (
           <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <Input label="Username *" value={createForm.username} onChange={setC('username')} placeholder="e.g. kasun123" hint="Used to log in" />
+              <Input label="Temp Password *" type="password" value={createForm.password} onChange={setC('password')} placeholder="Min 6 characters" hint="They'll change on first login" />
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
               <Input label="Full Name *"    value={createForm.full_name} onChange={setC('full_name')} placeholder="e.g. Kasun Silva" />
-              <Input label="Email *" type="email" value={createForm.email} onChange={setC('email')} placeholder="tenant@example.com" />
+              <Input label="Email (optional)" type="email" value={createForm.email} onChange={setC('email')} placeholder="tenant@example.com" />
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
               <Input label="Phone"          value={createForm.phone} onChange={setC('phone')} placeholder="0771234567" />

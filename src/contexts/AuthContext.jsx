@@ -30,10 +30,29 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }
 
-  async function signIn(email, password) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw error
-    return data
+  // Username login — looks up the internal email then signs in
+  async function signInWithUsername(username, password) {
+    // Look up internal email by username
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', username)
+      .single()
+
+    if (error || !data) throw new Error('Username not found.')
+
+    // Get the auth user's email using the profile id
+    const { data: authData, error: authError } = await supabase.rpc('get_user_email', { user_id: data.id })
+    if (authError || !authData) {
+      // Fallback: try signing in with generated email pattern
+      throw new Error('Login failed. Please contact your administrator.')
+    }
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: authData,
+      password,
+    })
+    if (signInError) throw new Error('Invalid username or password.')
   }
 
   async function signOut() {
@@ -51,8 +70,15 @@ export function AuthProvider({ children }) {
     await fetchProfile(user.id)
   }
 
+  async function changePassword(newPassword) {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+    await supabase.from('profiles').update({ must_change_password: false }).eq('id', user.id)
+    await fetchProfile(user.id)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, refreshProfile, updateProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signInWithUsername, signOut, refreshProfile, updateProfile, changePassword }}>
       {children}
     </AuthContext.Provider>
   )

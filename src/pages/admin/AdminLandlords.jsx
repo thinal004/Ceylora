@@ -16,7 +16,7 @@ export default function AdminLandlords() {
   const [saving, setSaving]       = useState(false)
   const [err, setErr]             = useState('')
   const [successMsg, setSuccessMsg] = useState('')
-  const [form, setForm] = useState({ full_name:'', email:'', phone:'', nic:'' })
+  const [form, setForm] = useState({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
 
   useEffect(() => { fetchLandlords() }, [])
 
@@ -31,23 +31,26 @@ export default function AdminLandlords() {
   }
 
   function openAdd() {
-    setForm({ full_name:'', email:'', phone:'', nic:'' })
+    setForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
     setErr(''); setSuccessMsg(''); setModal(true)
   }
 
   async function createLandlord() {
-    if (!form.full_name || !form.email) { setErr('Full name and email are required.'); return }
+    if (!form.username || !form.password || !form.full_name) { setErr('Username, password and full name are required.'); return }
+    if (form.password.length < 6) { setErr('Password must be at least 6 characters.'); return }
     setSaving(true); setErr(''); setSuccessMsg('')
     try {
-      const result = await createUser({
-        email: form.email,
+      await createUser({
+        username: form.username,
+        password: form.password,
         fullName: form.full_name,
+        email: form.email,
         phone: form.phone,
         nic: form.nic,
         role: 'landlord',
       })
-      setSuccessMsg(`✓ Landlord account created! A password setup email has been sent to ${form.email}.`)
-      setForm({ full_name:'', email:'', phone:'', nic:'' })
+      setSuccessMsg(`✓ Landlord account created! Username: ${form.username}`)
+      setForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
       fetchLandlords()
     } catch (e) {
       setErr(e.message || 'Failed to create landlord.')
@@ -122,10 +125,14 @@ export default function AdminLandlords() {
           </div>
         ) : (
           <>
-            <Input label="Full Name *"     value={form.full_name} onChange={set('full_name')} placeholder="e.g. Suresh Perera" />
-            <Input label="Email Address *" type="email" value={form.email} onChange={set('email')} placeholder="landlord@example.com" />
-            <Input label="Phone Number"    value={form.phone} onChange={set('phone')} placeholder="e.g. 0771234567" />
-            <Input label="NIC / Passport"  value={form.nic} onChange={set('nic')} placeholder="National ID or Passport number" />
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <Input label="Username *" value={form.username} onChange={set('username')} placeholder="e.g. suresh123" hint="Used to log in" />
+              <Input label="Temp Password *" type="password" value={form.password} onChange={set('password')} placeholder="Min 6 characters" hint="They'll change this on first login" />
+            </div>
+            <Input label="Full Name *"    value={form.full_name} onChange={set('full_name')} placeholder="e.g. Suresh Perera" />
+            <Input label="Email (optional)" type="email" value={form.email} onChange={set('email')} placeholder="landlord@example.com" />
+            <Input label="Phone Number"   value={form.phone} onChange={set('phone')} placeholder="e.g. 0771234567" />
+            <Input label="NIC / Passport" value={form.nic} onChange={set('nic')} placeholder="National ID or Passport number" />
             {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
             <div style={{ display:'flex', gap:8 }}>
               <Button fullWidth loading={saving} onClick={createLandlord}>Create Account</Button>

@@ -4,8 +4,8 @@ import { Input } from '../components/ui/Input'
 import Button from '../components/ui/Button'
 
 export default function Login() {
-  const { signIn } = useAuth()
-  const [email, setEmail]       = useState('')
+  const { signInWithUsername } = useAuth()
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
@@ -15,9 +15,9 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await signIn(email, password)
+      await signInWithUsername(username.trim(), password)
     } catch (err) {
-      setError(err.message || 'Invalid email or password.')
+      setError(err.message || 'Invalid username or password.')
     } finally {
       setLoading(false)
     }
@@ -34,12 +34,13 @@ export default function Login() {
         <div className="fade-up fade-up-1" style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'2rem', boxShadow:'var(--shadow-md)' }}>
           <form onSubmit={handleSubmit}>
             <Input
-              label="Email Address"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              label="Username"
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="Enter your username"
               required
+              autoComplete="username"
             />
             <Input
               label="Password"
@@ -48,6 +49,7 @@ export default function Login() {
               onChange={e => setPassword(e.target.value)}
               placeholder="Enter your password"
               required
+              autoComplete="current-password"
             />
             {error && (
               <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:'1rem' }}>
