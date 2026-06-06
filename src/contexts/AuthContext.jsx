@@ -34,33 +34,22 @@ export function AuthProvider({ children }) {
   async function signInWithUsername(username, password) {
     if (!username || !password) throw new Error('Username and password are required.')
 
-    // Step 1: Find the profile by username
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('username', username.trim())
-      .maybeSingle()
-
-    // Use a generic error to prevent username enumeration attacks
-    if (profileError || !profile) {
-      throw new Error('Invalid username or password.')
-    }
-
-    // Step 2: Get the internal email via SECURITY DEFINER function
+    // Step 1: Resolve internal email from username via secure RPC
+    // This SECURITY DEFINER function bypasses RLS so it works pre-authentication
     const { data: userEmail, error: emailError } = await supabase
-      .rpc('get_user_email', { p_user_id: profile.id })
+      .rpc('get_email_by_username', { p_username: username.trim() })
 
+    // Generic error — never reveal whether username exists or not
     if (emailError || !userEmail) {
       throw new Error('Invalid username or password.')
     }
 
-    // Step 3: Sign in with internal email and password
+    // Step 2: Sign in with resolved email and password
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: userEmail,
       password,
     })
 
-    // Generic error — never reveal whether username or password was wrong
     if (signInError) throw new Error('Invalid username or password.')
   }
 

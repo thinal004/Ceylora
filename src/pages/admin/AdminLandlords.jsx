@@ -8,15 +8,17 @@ import Table, { Tr, Td } from '../../components/ui/Table'
 import Badge from '../../components/ui/Badge'
 
 export default function AdminLandlords() {
-  const [landlords, setLandlords] = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [modal, setModal]         = useState(false)
+  const [landlords, setLandlords]     = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [modal, setModal]             = useState(false)   // 'create' | 'edit' | false
+  const [editTarget, setEditTarget]   = useState(null)
   const [detailModal, setDetailModal] = useState(null)
-  const [search, setSearch]       = useState('')
-  const [saving, setSaving]       = useState(false)
-  const [err, setErr]             = useState('')
-  const [successMsg, setSuccessMsg] = useState('')
+  const [search, setSearch]           = useState('')
+  const [saving, setSaving]           = useState(false)
+  const [err, setErr]                 = useState('')
+  const [successMsg, setSuccessMsg]   = useState('')
   const [form, setForm] = useState({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
+  const [editForm, setEditForm] = useState({ full_name:'', email:'', phone:'', nic:'', username:'' })
 
   useEffect(() => { fetchLandlords() }, [])
 
@@ -32,7 +34,19 @@ export default function AdminLandlords() {
 
   function openAdd() {
     setForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
-    setErr(''); setSuccessMsg(''); setModal(true)
+    setErr(''); setSuccessMsg(''); setModal('create')
+  }
+
+  function openEdit(landlord) {
+    setEditTarget(landlord)
+    setEditForm({
+      full_name: landlord.full_name || '',
+      email:     landlord.email    || '',
+      phone:     landlord.phone    || '',
+      nic:       landlord.nic      || '',
+      username:  landlord.username || '',
+    })
+    setErr(''); setModal('edit')
   }
 
   async function createLandlord() {
@@ -44,10 +58,10 @@ export default function AdminLandlords() {
         username: form.username,
         password: form.password,
         fullName: form.full_name,
-        email: form.email,
-        phone: form.phone,
-        nic: form.nic,
-        role: 'landlord',
+        email:    form.email,
+        phone:    form.phone,
+        nic:      form.nic,
+        role:     'landlord',
       })
       setSuccessMsg(`✓ Landlord account created! Username: ${form.username}`)
       setForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
@@ -58,14 +72,38 @@ export default function AdminLandlords() {
     setSaving(false)
   }
 
+  async function saveEdit() {
+    if (!editForm.full_name) { setErr('Full name is required.'); return }
+    setSaving(true); setErr('')
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: editForm.full_name.trim(),
+          email:     editForm.email.trim()    || null,
+          phone:     editForm.phone.trim()    || null,
+          nic:       editForm.nic.trim()      || null,
+          username:  editForm.username.trim() || null,
+        })
+        .eq('id', editTarget.id)
+      if (error) throw new Error(error.message)
+      setModal(false)
+      fetchLandlords()
+    } catch (e) {
+      setErr(e.message || 'Failed to update landlord.')
+    }
+    setSaving(false)
+  }
+
   async function toggleActive(landlord) {
-    const action = landlord.is_active ? 'suspend' : 'activate'
-    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${landlord.full_name}?`)) return
+    const action = landlord.is_active ? 'Suspend' : 'Activate'
+    if (!confirm(`${action} ${landlord.full_name}?`)) return
     await supabase.from('profiles').update({ is_active: !landlord.is_active }).eq('id', landlord.id)
     fetchLandlords()
   }
 
-  const set = f => e => setForm(x => ({ ...x, [f]: e.target.value }))
+  const set  = f => e => setForm(x => ({ ...x, [f]: e.target.value }))
+  const setE = f => e => setEditForm(x => ({ ...x, [f]: e.target.value }))
 
   const filtered = landlords.filter(l =>
     !search || l.full_name?.toLowerCase().includes(search.toLowerCase()) || l.email?.toLowerCase().includes(search.toLowerCase())
@@ -88,10 +126,11 @@ export default function AdminLandlords() {
       <Table
         headers={['Name', 'Email', 'Phone', 'NIC', 'Joined', 'Status', 'Actions']}
         empty={{ title:'No landlords yet', sub:'Create the first landlord account to get started.' }}>
-        {filtered.map((l, i) => (
+        {filtered.map(l => (
           <Tr key={l.id}>
             <Td>
               <div style={{ fontWeight:500 }}>{l.full_name}</div>
+              <div style={{ fontSize:11, color:'var(--text3)' }}>@{l.username || '—'}</div>
             </Td>
             <Td style={{ color:'var(--text2)', fontSize:13 }}>{l.email || '—'}</Td>
             <Td style={{ color:'var(--text2)' }}>{l.phone || '—'}</Td>
@@ -100,6 +139,7 @@ export default function AdminLandlords() {
             <Td><Badge variant={l.is_active ? 'green' : 'red'}>{l.is_active ? 'Active' : 'Suspended'}</Badge></Td>
             <Td>
               <div style={{ display:'flex', gap:6 }}>
+                <Button size="sm" variant="ghost" onClick={() => openEdit(l)}>Edit</Button>
                 <Button size="sm" variant="ghost" onClick={() => setDetailModal(l)}>View</Button>
                 <Button size="sm" variant={l.is_active ? 'danger' : 'success'} onClick={() => toggleActive(l)}>
                   {l.is_active ? 'Suspend' : 'Activate'}
@@ -111,15 +151,15 @@ export default function AdminLandlords() {
       </Table>
 
       {/* Create Landlord Modal */}
-      <Modal open={modal} onClose={() => setModal(false)} title="Create Landlord Account" maxWidth={480}>
+      <Modal open={modal === 'create'} onClose={() => setModal(false)} title="Create Landlord Account" maxWidth={480}>
         <div style={{ background:'var(--blue-bg)', borderRadius:'var(--radius)', padding:'10px 14px', marginBottom:'1rem', fontSize:13, color:'var(--blue-text)' }}>
-          ℹ️ A password setup email will be automatically sent to the landlord once the account is created.
+          ℹ️ Set a username and temporary password. The landlord will be asked to change their password on first login.
         </div>
         {successMsg ? (
           <div>
             <div style={{ background:'var(--green-bg)', color:'var(--green-text)', fontSize:13, padding:'12px 14px', borderRadius:'var(--radius)', marginBottom:16 }}>{successMsg}</div>
             <div style={{ display:'flex', gap:8 }}>
-              <Button fullWidth onClick={() => { setSuccessMsg(''); }}>Create Another</Button>
+              <Button fullWidth onClick={() => setSuccessMsg('')}>Create Another</Button>
               <Button variant="ghost" onClick={() => setModal(false)}>Close</Button>
             </div>
           </div>
@@ -127,15 +167,33 @@ export default function AdminLandlords() {
           <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
               <Input label="Username *" value={form.username} onChange={set('username')} placeholder="e.g. suresh123" hint="Used to log in" />
-              <Input label="Temp Password *" type="password" value={form.password} onChange={set('password')} placeholder="Min 6 characters" hint="They'll change this on first login" />
+              <Input label="Temp Password *" type="password" value={form.password} onChange={set('password')} placeholder="Min 6 characters" hint="They'll change on first login" />
             </div>
-            <Input label="Full Name *"    value={form.full_name} onChange={set('full_name')} placeholder="e.g. Suresh Perera" />
+            <Input label="Full Name *"      value={form.full_name} onChange={set('full_name')} placeholder="e.g. Suresh Perera" />
             <Input label="Email (optional)" type="email" value={form.email} onChange={set('email')} placeholder="landlord@example.com" />
-            <Input label="Phone Number"   value={form.phone} onChange={set('phone')} placeholder="e.g. 0771234567" />
-            <Input label="NIC / Passport" value={form.nic} onChange={set('nic')} placeholder="National ID or Passport number" />
+            <Input label="Phone Number"     value={form.phone} onChange={set('phone')} placeholder="e.g. 0771234567" />
+            <Input label="NIC / Passport"   value={form.nic} onChange={set('nic')} placeholder="National ID or Passport number" />
             {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
             <div style={{ display:'flex', gap:8 }}>
               <Button fullWidth loading={saving} onClick={createLandlord}>Create Account</Button>
+              <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* Edit Landlord Modal */}
+      <Modal open={modal === 'edit'} onClose={() => setModal(false)} title="Edit Landlord" maxWidth={480}>
+        {editTarget && (
+          <>
+            <Input label="Username"    value={editForm.username}  onChange={setE('username')}  placeholder="e.g. suresh123" hint="Changing this will affect their login" />
+            <Input label="Full Name *" value={editForm.full_name} onChange={setE('full_name')} placeholder="e.g. Suresh Perera" />
+            <Input label="Email"       type="email" value={editForm.email} onChange={setE('email')} placeholder="landlord@example.com" />
+            <Input label="Phone"       value={editForm.phone} onChange={setE('phone')} placeholder="e.g. 0771234567" />
+            <Input label="NIC / Passport" value={editForm.nic} onChange={setE('nic')} placeholder="National ID or Passport number" />
+            {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
+            <div style={{ display:'flex', gap:8 }}>
+              <Button fullWidth loading={saving} onClick={saveEdit}>Save Changes</Button>
               <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
             </div>
           </>
@@ -147,12 +205,13 @@ export default function AdminLandlords() {
         {detailModal && (
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
             {[
-              ['Full Name', detailModal.full_name],
-              ['Email', detailModal.email || '—'],
-              ['Phone', detailModal.phone || '—'],
-              ['NIC / Passport', detailModal.nic || '—'],
-              ['Status', detailModal.is_active ? 'Active' : 'Suspended'],
-              ['Member Since', new Date(detailModal.created_at).toLocaleDateString('en-LK')],
+              ['Full Name',      detailModal.full_name],
+              ['Username',       detailModal.username  || '—'],
+              ['Email',          detailModal.email     || '—'],
+              ['Phone',          detailModal.phone     || '—'],
+              ['NIC / Passport', detailModal.nic       || '—'],
+              ['Status',         detailModal.is_active ? 'Active' : 'Suspended'],
+              ['Member Since',   new Date(detailModal.created_at).toLocaleDateString('en-LK')],
             ].map(([label, value]) => (
               <div key={label} style={{ background:'var(--surface2)', borderRadius:'var(--radius)', padding:'10px 12px' }}>
                 <div style={{ fontSize:11, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:3 }}>{label}</div>
