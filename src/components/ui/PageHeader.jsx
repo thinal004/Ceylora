@@ -1,4 +1,4 @@
-export default function PageHeader({ title, sub, action }) {
+export default function PageHeader({ title, sub, action, children }) {
   return (
     <div className="fade-up" style={{
       display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
@@ -8,7 +8,7 @@ export default function PageHeader({ title, sub, action }) {
         <h1 style={{ fontSize: '1.75rem', fontFamily: 'Instrument Serif, serif', fontWeight: 400, letterSpacing: '-0.3px' }}>{title}</h1>
         {sub && <p style={{ fontSize: 14, color: 'var(--text2)', marginTop: 3 }}>{sub}</p>}
       </div>
-      {action && <div>{action}</div>}
+      {(action || children) && <div>{action || children}</div>}
     </div>
   )
 }
