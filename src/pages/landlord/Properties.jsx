@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
 import { Input, Select } from '../../components/ui/Input'
 import Badge from '../../components/ui/Badge'
+import ImageInput from '../../components/ui/ImageInput'
 
 const SL_DISTRICTS = ['Colombo','Gampaha','Kalutara','Kandy','Matale','Nuwara Eliya','Galle','Matara','Hambantota','Jaffna','Kilinochchi','Mannar','Vavuniya','Mullaitivu','Batticaloa','Ampara','Trincomalee','Kurunegala','Puttalam','Anuradhapura','Polonnaruwa','Badulla','Monaragala','Ratnapura','Kegalle']
 const PROPERTY_TYPES = ['Residential','Commercial','Industrial','Mixed Use']
@@ -20,7 +21,7 @@ export default function Properties() {
   const [unitModal, setUnitModal]   = useState(null)
   const [editUnitModal, setEditUnitModal] = useState(null)
   const [editing, setEditing]       = useState(null)
-  const [form, setForm] = useState({ property_code:'', name:'', address:'', city:'', district:'', country:'Sri Lanka', property_type:'Residential' })
+  const [form, setForm] = useState({ property_code:'', name:'', address:'', city:'', district:'', country:'Sri Lanka', property_type:'Residential', image:null })
   const [unitForm, setUnitForm] = useState({ unit_number:'', floor:'', monthly_rent:'', electricity_charges:'', water_charges:'', deposit_amount:'', description:'' })
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState('')
@@ -39,13 +40,13 @@ export default function Properties() {
 
   function openAdd() {
     setEditing(null)
-    setForm({ property_code:'', name:'', address:'', city:'', district:'', country:'Sri Lanka', property_type:'Residential' })
+    setForm({ property_code:'', name:'', address:'', city:'', district:'', country:'Sri Lanka', property_type:'Residential', image:null })
     setErr(''); setModal(true)
   }
 
   function openEdit(p) {
     setEditing(p)
-    setForm({ property_code: p.property_code||'', name: p.name, address: p.address, city: p.city, district: p.district||'', country: p.country||'Sri Lanka', property_type: p.property_type||'Residential' })
+    setForm({ property_code: p.property_code||'', name: p.name, address: p.address, city: p.city, district: p.district||'', country: p.country||'Sri Lanka', property_type: p.property_type||'Residential', image: p.image||null })
     setErr(''); setModal(true)
   }
 
@@ -146,6 +147,9 @@ export default function Properties() {
             const total    = p.units?.length || 0
             return (
               <Card key={p.id} className={`fade-up fade-up-${Math.min(i+1,7)}`}>
+                {p.image && (
+                  <img src={p.image} alt={p.name} style={{ width:'100%', height:160, objectFit:'cover', borderRadius:'var(--radius)', marginBottom:'1rem', border:'1px solid var(--border)' }} />
+                )}
                 <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:'1rem', marginBottom:'1rem' }}>
                   <div>
                     <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
@@ -200,6 +204,7 @@ export default function Properties() {
 
       {/* Property Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title={editing ? 'Edit Property' : 'Add Property'}>
+        <ImageInput label="Property Image" value={form.image} onChange={v => setForm(f => ({ ...f, image: v }))} hint="Optional — auto compressed" />
         <Input label="Property Name *" value={form.name} onChange={set('name')} placeholder="e.g. Perera Residencies" />
         <Input label="Property Code" value={form.property_code} onChange={set('property_code')} placeholder="e.g. PR-001 (optional)" hint="Short reference code for this property" />
         <Input label="Address *" value={form.address} onChange={set('address')} placeholder="Street address" />

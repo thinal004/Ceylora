@@ -7,6 +7,7 @@ import Modal from '../../components/ui/Modal'
 import { Input, Select } from '../../components/ui/Input'
 import Table, { Tr, Td } from '../../components/ui/Table'
 import Badge from '../../components/ui/Badge'
+import ImageInput from '../../components/ui/ImageInput'
 
 const LKR = n => `LKR ${Number(n || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`
 
@@ -24,7 +25,7 @@ export default function Tenants() {
 
   // Create tenant form
   const [createForm, setCreateForm] = useState({
-    username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:''
+    username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'', photo:null
   })
 
   // Assign tenancy form
@@ -89,8 +90,12 @@ export default function Tenants() {
         emergencyContactName: createForm.emergency_contact_name,
         emergencyContactPhone: createForm.emergency_contact_phone,
       })
+      // Save photo if provided
+      if (createForm.photo && result?.userId) {
+        await supabase.from('profiles').update({ photo: createForm.photo }).eq('id', result.userId)
+      }
       setSuccessMsg(`✓ Tenant account created! Username: ${createForm.username}`)
-      setCreateForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'' })
+      setCreateForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'', address:'', emergency_contact_name:'', emergency_contact_phone:'', photo:null })
       fetchData()
     } catch (e) {
       setErr(e.message || 'Failed to create tenant.')
@@ -151,8 +156,17 @@ export default function Tenants() {
         {tenancies.map(t => (
           <Tr key={t.id}>
             <Td>
-              <div style={{ fontWeight:500 }}>{t.profiles?.full_name || '—'}</div>
-              <div style={{ fontSize:12, color:'var(--text3)' }}>{t.units?.properties?.name}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                {t.profiles?.photo ? (
+                  <img src={t.profiles.photo} alt="" style={{ width:32, height:32, borderRadius:'50%', objectFit:'cover', border:'1px solid var(--border)', flexShrink:0 }} />
+                ) : (
+                  <div style={{ width:32, height:32, borderRadius:'50%', background:'var(--surface2)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>👤</div>
+                )}
+                <div>
+                  <div style={{ fontWeight:500 }}>{t.profiles?.full_name || '—'}</div>
+                  <div style={{ fontSize:12, color:'var(--text3)' }}>{t.units?.properties?.name}</div>
+                </div>
+              </div>
             </Td>
             <Td style={{ color:'var(--text2)', fontSize:13 }}>
               <div>{t.profiles?.phone || '—'}</div>
@@ -201,6 +215,7 @@ export default function Tenants() {
               <Input label="NIC / Passport" value={createForm.nic} onChange={setC('nic')} placeholder="National ID" />
             </div>
             <Input label="Address" value={createForm.address} onChange={setC('address')} placeholder="Permanent address" />
+            <ImageInput label="Tenant Photo (optional)" value={createForm.photo} onChange={v => setCreateForm(f => ({ ...f, photo: v }))} hint="ID photo or profile picture — auto compressed" />
             <div style={{ borderTop:'1px solid var(--border)', paddingTop:'1rem', marginTop:'0.5rem' }}>
               <p style={{ fontSize:12, color:'var(--text3)', marginBottom:'0.75rem' }}>Emergency Contact (Optional)</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>

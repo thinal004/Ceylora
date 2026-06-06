@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { supabase, uploadReceipt, getSignedReceiptUrl, LKR, MONTHS } from '../../lib/supabase'
+import { supabase, LKR, MONTHS } from '../../lib/supabase'
+import ImageInput from '../../components/ui/ImageInput'
 import { StatCard } from '../../components/ui/Card'
 import PageHeader from '../../components/ui/PageHeader'
 import Button from '../../components/ui/Button'
@@ -18,7 +19,7 @@ export default function TenantOverview() {
   const [payModal, setPayModal]     = useState(null)
   const [receiptModal, setReceiptModal] = useState(null)
   const [receiptUrl, setReceiptUrl] = useState(null)
-  const [form, setForm] = useState({ amount:'', paid_date:'', payment_method:'Bank Transfer', note:'', file:null })
+  const [form, setForm] = useState({ amount:'', paid_date:'', payment_method:'Bank Transfer', note:'', receipt_image:null })
   const [uploading, setUploading]   = useState(false)
   const [err, setErr]               = useState('')
 
@@ -60,7 +61,7 @@ export default function TenantOverview() {
       paid_date:      existing?.paid_date || now.toISOString().split('T')[0],
       payment_method: existing?.payment_method || 'Bank Transfer',
       note:           existing?.note || '',
-      file:           null,
+      receipt_image:  existing?.receipt_image || null,
     })
     setPayModal({ month, year })
   }
@@ -69,24 +70,18 @@ export default function TenantOverview() {
     if (!form.amount || !form.paid_date) { setErr('Amount and date are required.'); return }
     setUploading(true); setErr('')
     try {
-      let receiptPath = null
-      if (form.file) {
-        if (form.file.size > 5 * 1024 * 1024) { setErr('File must be under 5MB.'); setUploading(false); return }
-        const { path } = await uploadReceipt(form.file, tenancy.id, payModal.year, payModal.month)
-        receiptPath = path
-      }
       const existing = getPayment(payModal.year, payModal.month)
       const payload = {
-        tenancy_id:    tenancy.id,
-        period_year:   payModal.year,
-        period_month:  payModal.month,
-        amount:        parseFloat(form.amount),
-        paid_date:     form.paid_date,
+        tenancy_id:     tenancy.id,
+        period_year:    payModal.year,
+        period_month:   payModal.month,
+        amount:         parseFloat(form.amount),
+        paid_date:      form.paid_date,
         payment_method: form.payment_method,
-        note:          form.note,
-        status:        'pending',
-        submitted_by:  'tenant',
-        ...(receiptPath && { receipt_path: receiptPath }),
+        note:           form.note,
+        status:         'pending',
+        submitted_by:   'tenant',
+        receipt_image:  form.receipt_image || null,
       }
       if (existing) {
         await supabase.from('payments').update(payload).eq('id', existing.id)
@@ -95,16 +90,13 @@ export default function TenantOverview() {
       }
       setPayModal(null); fetchData()
     } catch (e) {
-      setErr(e.message || 'Upload failed.')
+      setErr(e.message || 'Failed to submit payment.')
     }
     setUploading(false)
   }
 
-  async function openReceipt(p) {
-    setReceiptModal(p); setReceiptUrl(null)
-    if (p.receipt_path) {
-      try { setReceiptUrl(await getSignedReceiptUrl(p.receipt_path)) } catch {}
-    }
+  function openReceipt(p) {
+    setReceiptModal(p)
   }
 
   if (loading) return (
@@ -176,7 +168,7 @@ export default function TenantOverview() {
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                 <Badge variant={badgeV}>{badgeL}</Badge>
-                {pay?.status === 'confirmed' && pay.receipt_path && (
+                {pay?.status === 'confirmed' && pay.receipt_image && (
                   <Button size="sm" variant="ghost" onClick={() => openReceipt(pay)}>Receipt</Button>
                 )}
                 {pay?.status !== 'confirmed' && !isFuture && (
@@ -201,13 +193,7 @@ export default function TenantOverview() {
         <Select label="Payment Method" value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))}>
           {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
         </Select>
-        <div style={{ marginBottom:'1rem' }}>
-          <label style={{ display:'block', fontSize:13, fontWeight:500, color:'var(--text2)', marginBottom:5 }}>Upload Receipt (optional)</label>
-          <input type="file" accept="image/*,application/pdf"
-            onChange={e => setForm(f => ({ ...f, file: e.target.files[0] }))}
-            style={{ fontSize:13, padding:'8px 0', width:'100%' }} />
-          <p style={{ fontSize:12, color:'var(--text3)', marginTop:4 }}>JPG, PNG or PDF · Max 5MB</p>
-        </div>
+        <ImageInput label="Receipt Image (optional)" value={form.receipt_image} onChange={v => setForm(f => ({ ...f, receipt_image: v }))} hint="Photo of bank slip or receipt — auto compressed" />
         <Input label="Note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="e.g. Bank transfer ref #123456" />
         {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
         <div style={{ display:'flex', gap:8 }}>
@@ -234,10 +220,8 @@ export default function TenantOverview() {
               ))}
             </div>
             {receiptModal.note && <p style={{ fontSize:13, color:'var(--text2)', marginBottom:'1rem' }}>Note: {receiptModal.note}</p>}
-            {receiptModal.receipt_path
-              ? receiptUrl
-                ? <img src={receiptUrl} alt="Receipt" style={{ maxWidth:'100%', borderRadius:'var(--radius)', border:'1px solid var(--border)' }} />
-                : <p style={{ color:'var(--text3)', fontSize:13 }}>Loading receipt...</p>
+            {receiptModal.receipt_image
+              ? <img src={receiptModal.receipt_image} alt="Receipt" style={{ maxWidth:'100%', borderRadius:'var(--radius)', border:'1px solid var(--border)' }} />
               : <p style={{ color:'var(--text3)', fontSize:13 }}>No receipt uploaded.</p>
             }
           </div>
