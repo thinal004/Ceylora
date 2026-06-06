@@ -29,11 +29,12 @@ export default function Properties() {
   useEffect(() => { fetchProperties() }, [])
 
   async function fetchProperties() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('properties')
       .select('*, units(id, unit_number, floor, monthly_rent, electricity_charges, water_charges, deposit_amount, is_occupied, description)')
       .eq('landlord_id', profile.id)
       .order('created_at', { ascending: false })
+    if (error) console.error('fetchProperties error:', error.message)
     setProperties(data || [])
     setLoading(false)
   }
@@ -53,15 +54,28 @@ export default function Properties() {
   async function saveProperty() {
     if (!form.name || !form.address || !form.city) { setErr('Name, address and city are required.'); return }
     setSaving(true); setErr('')
-    try {
-      const payload = { ...form }
-      if (editing) {
-        await supabase.from('properties').update(payload).eq('id', editing.id)
-      } else {
-        await supabase.from('properties').insert({ ...payload, landlord_id: profile.id })
-      }
-      setModal(false); fetchProperties()
-    } catch { setErr('Failed to save property.') }
+    const payload = {
+      property_code: form.property_code || null,
+      name:          form.name,
+      address:       form.address,
+      city:          form.city,
+      district:      form.district      || null,
+      country:       form.country       || 'Sri Lanka',
+      property_type: form.property_type || 'Residential',
+      image:         form.image         || null,
+    }
+    let error
+    if (editing) {
+      ;({ error } = await supabase.from('properties').update(payload).eq('id', editing.id))
+    } else {
+      ;({ error } = await supabase.from('properties').insert({ ...payload, landlord_id: profile.id }))
+    }
+    if (error) {
+      setErr(error.message || 'Failed to save property.')
+    } else {
+      setModal(false)
+      fetchProperties()
+    }
     setSaving(false)
   }
 

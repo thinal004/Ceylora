@@ -7,18 +7,28 @@ import { Input } from '../../components/ui/Input'
 import Table, { Tr, Td } from '../../components/ui/Table'
 import Badge from '../../components/ui/Badge'
 
+const EMPTY_FORM = {
+  username:'', password:'', full_name:'', email:'', phone:'', nic:'',
+  address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
+}
+
+const EMPTY_EDIT = {
+  username:'', full_name:'', email:'', phone:'', nic:'',
+  address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
+}
+
 export default function AdminLandlords() {
   const [landlords, setLandlords]     = useState([])
   const [loading, setLoading]         = useState(true)
-  const [modal, setModal]             = useState(false)   // 'create' | 'edit' | false
+  const [modal, setModal]             = useState(false)
   const [editTarget, setEditTarget]   = useState(null)
   const [detailModal, setDetailModal] = useState(null)
   const [search, setSearch]           = useState('')
   const [saving, setSaving]           = useState(false)
   const [err, setErr]                 = useState('')
   const [successMsg, setSuccessMsg]   = useState('')
-  const [form, setForm] = useState({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
-  const [editForm, setEditForm] = useState({ full_name:'', email:'', phone:'', nic:'', username:'' })
+  const [form, setForm]       = useState(EMPTY_FORM)
+  const [editForm, setEditForm] = useState(EMPTY_EDIT)
 
   useEffect(() => { fetchLandlords() }, [])
 
@@ -33,38 +43,60 @@ export default function AdminLandlords() {
   }
 
   function openAdd() {
-    setForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
+    setForm(EMPTY_FORM)
     setErr(''); setSuccessMsg(''); setModal('create')
   }
 
   function openEdit(landlord) {
     setEditTarget(landlord)
     setEditForm({
-      full_name: landlord.full_name || '',
-      email:     landlord.email    || '',
-      phone:     landlord.phone    || '',
-      nic:       landlord.nic      || '',
-      username:  landlord.username || '',
+      username:      landlord.username      || '',
+      full_name:     landlord.full_name     || '',
+      email:         landlord.email         || '',
+      phone:         landlord.phone         || '',
+      nic:           landlord.nic           || '',
+      address_line1: landlord.address_line1 || '',
+      address_line2: landlord.address_line2 || '',
+      city:          landlord.city          || '',
+      postal_code:   landlord.postal_code   || '',
+      country:       landlord.country       || 'Sri Lanka',
     })
     setErr(''); setModal('edit')
   }
 
   async function createLandlord() {
-    if (!form.username || !form.password || !form.full_name) { setErr('Username, password and full name are required.'); return }
+    if (!form.username)   { setErr('Username is required.'); return }
+    if (!form.password)   { setErr('Temporary password is required.'); return }
+    if (!form.full_name)  { setErr('Full name is required.'); return }
+    if (!form.phone)      { setErr('Contact number is required.'); return }
     if (form.password.length < 6) { setErr('Password must be at least 6 characters.'); return }
+
     setSaving(true); setErr(''); setSuccessMsg('')
     try {
-      await createUser({
-        username: form.username,
-        password: form.password,
-        fullName: form.full_name,
-        email:    form.email,
-        phone:    form.phone,
-        nic:      form.nic,
-        role:     'landlord',
+      const result = await createUser({
+        username:  form.username,
+        password:  form.password,
+        fullName:  form.full_name,
+        email:     form.email,
+        phone:     form.phone,
+        nic:       form.nic,
+        role:      'landlord',
+        address:   [form.address_line1, form.address_line2].filter(Boolean).join(', '),
       })
+
+      // Save extended address fields
+      if (result?.userId) {
+        await supabase.from('profiles').update({
+          address_line1: form.address_line1 || null,
+          address_line2: form.address_line2 || null,
+          city:          form.city          || null,
+          postal_code:   form.postal_code   || null,
+          country:       form.country       || 'Sri Lanka',
+        }).eq('id', result.userId)
+      }
+
       setSuccessMsg(`✓ Landlord account created! Username: ${form.username}`)
-      setForm({ username:'', password:'', full_name:'', email:'', phone:'', nic:'' })
+      setForm(EMPTY_FORM)
       fetchLandlords()
     } catch (e) {
       setErr(e.message || 'Failed to create landlord.')
@@ -74,16 +106,22 @@ export default function AdminLandlords() {
 
   async function saveEdit() {
     if (!editForm.full_name) { setErr('Full name is required.'); return }
+    if (!editForm.phone)     { setErr('Contact number is required.'); return }
     setSaving(true); setErr('')
     try {
       const { error } = await supabase
         .from('profiles')
         .update({
-          full_name: editForm.full_name.trim(),
-          email:     editForm.email.trim()    || null,
-          phone:     editForm.phone.trim()    || null,
-          nic:       editForm.nic.trim()      || null,
-          username:  editForm.username.trim() || null,
+          username:      editForm.username.trim()      || null,
+          full_name:     editForm.full_name.trim(),
+          email:         editForm.email.trim()         || null,
+          phone:         editForm.phone.trim()         || null,
+          nic:           editForm.nic.trim()           || null,
+          address_line1: editForm.address_line1.trim() || null,
+          address_line2: editForm.address_line2.trim() || null,
+          city:          editForm.city.trim()          || null,
+          postal_code:   editForm.postal_code.trim()   || null,
+          country:       editForm.country.trim()       || 'Sri Lanka',
         })
         .eq('id', editTarget.id)
       if (error) throw new Error(error.message)
@@ -106,8 +144,76 @@ export default function AdminLandlords() {
   const setE = f => e => setEditForm(x => ({ ...x, [f]: e.target.value }))
 
   const filtered = landlords.filter(l =>
-    !search || l.full_name?.toLowerCase().includes(search.toLowerCase()) || l.email?.toLowerCase().includes(search.toLowerCase())
+    !search ||
+    l.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+    l.email?.toLowerCase().includes(search.toLowerCase()) ||
+    l.username?.toLowerCase().includes(search.toLowerCase())
   )
+
+  // ── Section divider helper ──
+  function SectionLabel({ text }) {
+    return (
+      <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', margin:'1rem 0 0.5rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)' }}>
+        {text}
+      </div>
+    )
+  }
+
+  // ── Reusable form fields ──
+  function CreateFields() {
+    return (
+      <>
+        <SectionLabel text="Login Credentials" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <Input label="Username *" value={form.username} onChange={set('username')} placeholder="e.g. suresh123" hint="Used to log in — must be unique" />
+          <Input label="Temp Password *" type="password" value={form.password} onChange={set('password')} placeholder="Min 6 characters" hint="Landlord changes this on first login" />
+        </div>
+
+        <SectionLabel text="Personal Information" />
+        <Input label="Full Name *" value={form.full_name} onChange={set('full_name')} placeholder="e.g. Suresh Perera" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <Input label="Contact Number *" value={form.phone} onChange={set('phone')} placeholder="e.g. 0771234567" />
+          <Input label="NIC / Passport" value={form.nic} onChange={set('nic')} placeholder="National ID or Passport" />
+        </div>
+        <Input label="Email Address" type="email" value={form.email} onChange={set('email')} placeholder="landlord@example.com (optional)" />
+
+        <SectionLabel text="Address" />
+        <Input label="Address Line 1" value={form.address_line1} onChange={set('address_line1')} placeholder="Street address" />
+        <Input label="Address Line 2" value={form.address_line2} onChange={set('address_line2')} placeholder="Apartment, suite, floor (optional)" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <Input label="City" value={form.city} onChange={set('city')} placeholder="e.g. Colombo" />
+          <Input label="Postal Code" value={form.postal_code} onChange={set('postal_code')} placeholder="e.g. 10100" />
+        </div>
+        <Input label="Country" value={form.country} onChange={set('country')} placeholder="Sri Lanka" />
+      </>
+    )
+  }
+
+  function EditFields() {
+    return (
+      <>
+        <SectionLabel text="Login Credentials" />
+        <Input label="Username" value={editForm.username} onChange={setE('username')} placeholder="e.g. suresh123" hint="Changing this will affect their login" />
+
+        <SectionLabel text="Personal Information" />
+        <Input label="Full Name *" value={editForm.full_name} onChange={setE('full_name')} placeholder="e.g. Suresh Perera" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <Input label="Contact Number *" value={editForm.phone} onChange={setE('phone')} placeholder="e.g. 0771234567" />
+          <Input label="NIC / Passport" value={editForm.nic} onChange={setE('nic')} placeholder="National ID or Passport" />
+        </div>
+        <Input label="Email Address" type="email" value={editForm.email} onChange={setE('email')} placeholder="landlord@example.com (optional)" />
+
+        <SectionLabel text="Address" />
+        <Input label="Address Line 1" value={editForm.address_line1} onChange={setE('address_line1')} placeholder="Street address" />
+        <Input label="Address Line 2" value={editForm.address_line2} onChange={setE('address_line2')} placeholder="Apartment, suite, floor (optional)" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <Input label="City" value={editForm.city} onChange={setE('city')} placeholder="e.g. Colombo" />
+          <Input label="Postal Code" value={editForm.postal_code} onChange={setE('postal_code')} placeholder="e.g. 10100" />
+        </div>
+        <Input label="Country" value={editForm.country} onChange={setE('country')} placeholder="Sri Lanka" />
+      </>
+    )
+  }
 
   return (
     <div>
@@ -118,13 +224,13 @@ export default function AdminLandlords() {
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search by name or email..."
-          style={{ padding:'9px 14px', border:'1px solid var(--border)', borderRadius:'var(--radius)', fontFamily:'inherit', fontSize:14, background:'var(--surface)', color:'var(--text)', width:'100%', maxWidth:360, outline:'none' }}
+          placeholder="Search by name, email or username..."
+          style={{ padding:'9px 14px', border:'1px solid var(--border)', borderRadius:'var(--radius)', fontFamily:'inherit', fontSize:14, background:'var(--surface)', color:'var(--text)', width:'100%', maxWidth:400, outline:'none' }}
         />
       </div>
 
       <Table
-        headers={['Name', 'Email', 'Phone', 'NIC', 'Joined', 'Status', 'Actions']}
+        headers={['Name', 'Contact', 'NIC', 'City', 'Joined', 'Status', 'Actions']}
         empty={{ title:'No landlords yet', sub:'Create the first landlord account to get started.' }}>
         {filtered.map(l => (
           <Tr key={l.id}>
@@ -132,9 +238,12 @@ export default function AdminLandlords() {
               <div style={{ fontWeight:500 }}>{l.full_name}</div>
               <div style={{ fontSize:11, color:'var(--text3)' }}>@{l.username || '—'}</div>
             </Td>
-            <Td style={{ color:'var(--text2)', fontSize:13 }}>{l.email || '—'}</Td>
-            <Td style={{ color:'var(--text2)' }}>{l.phone || '—'}</Td>
-            <Td style={{ fontFamily:'JetBrains Mono, monospace', fontSize:12, color:'var(--text2)' }}>{l.nic || '—'}</Td>
+            <Td>
+              <div style={{ fontSize:13, color:'var(--text2)' }}>{l.phone || '—'}</div>
+              <div style={{ fontSize:11, color:'var(--text3)' }}>{l.email || '—'}</div>
+            </Td>
+            <Td style={{ fontFamily:'monospace', fontSize:12, color:'var(--text2)' }}>{l.nic || '—'}</Td>
+            <Td style={{ color:'var(--text2)', fontSize:13 }}>{l.city || '—'}</Td>
             <Td style={{ color:'var(--text2)' }}>{new Date(l.created_at).toLocaleDateString('en-LK')}</Td>
             <Td><Badge variant={l.is_active ? 'green' : 'red'}>{l.is_active ? 'Active' : 'Suspended'}</Badge></Td>
             <Td>
@@ -151,30 +260,20 @@ export default function AdminLandlords() {
       </Table>
 
       {/* Create Landlord Modal */}
-      <Modal open={modal === 'create'} onClose={() => setModal(false)} title="Create Landlord Account" maxWidth={480}>
-        <div style={{ background:'var(--blue-bg)', borderRadius:'var(--radius)', padding:'10px 14px', marginBottom:'1rem', fontSize:13, color:'var(--blue-text)' }}>
-          ℹ️ Set a username and temporary password. The landlord will be asked to change their password on first login.
-        </div>
+      <Modal open={modal === 'create'} onClose={() => setModal(false)} title="Create Landlord Account" maxWidth={520}>
         {successMsg ? (
           <div>
             <div style={{ background:'var(--green-bg)', color:'var(--green-text)', fontSize:13, padding:'12px 14px', borderRadius:'var(--radius)', marginBottom:16 }}>{successMsg}</div>
             <div style={{ display:'flex', gap:8 }}>
-              <Button fullWidth onClick={() => setSuccessMsg('')}>Create Another</Button>
+              <Button fullWidth onClick={() => { setSuccessMsg(''); setForm(EMPTY_FORM) }}>Create Another</Button>
               <Button variant="ghost" onClick={() => setModal(false)}>Close</Button>
             </div>
           </div>
         ) : (
           <>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              <Input label="Username *" value={form.username} onChange={set('username')} placeholder="e.g. suresh123" hint="Used to log in" />
-              <Input label="Temp Password *" type="password" value={form.password} onChange={set('password')} placeholder="Min 6 characters" hint="They'll change on first login" />
-            </div>
-            <Input label="Full Name *"      value={form.full_name} onChange={set('full_name')} placeholder="e.g. Suresh Perera" />
-            <Input label="Email (optional)" type="email" value={form.email} onChange={set('email')} placeholder="landlord@example.com" />
-            <Input label="Phone Number"     value={form.phone} onChange={set('phone')} placeholder="e.g. 0771234567" />
-            <Input label="NIC / Passport"   value={form.nic} onChange={set('nic')} placeholder="National ID or Passport number" />
-            {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
-            <div style={{ display:'flex', gap:8 }}>
+            <CreateFields />
+            {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', margin:'12px 0' }}>{err}</div>}
+            <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
               <Button fullWidth loading={saving} onClick={createLandlord}>Create Account</Button>
               <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
             </div>
@@ -183,16 +282,12 @@ export default function AdminLandlords() {
       </Modal>
 
       {/* Edit Landlord Modal */}
-      <Modal open={modal === 'edit'} onClose={() => setModal(false)} title="Edit Landlord" maxWidth={480}>
+      <Modal open={modal === 'edit'} onClose={() => setModal(false)} title="Edit Landlord" maxWidth={520}>
         {editTarget && (
           <>
-            <Input label="Username"    value={editForm.username}  onChange={setE('username')}  placeholder="e.g. suresh123" hint="Changing this will affect their login" />
-            <Input label="Full Name *" value={editForm.full_name} onChange={setE('full_name')} placeholder="e.g. Suresh Perera" />
-            <Input label="Email"       type="email" value={editForm.email} onChange={setE('email')} placeholder="landlord@example.com" />
-            <Input label="Phone"       value={editForm.phone} onChange={setE('phone')} placeholder="e.g. 0771234567" />
-            <Input label="NIC / Passport" value={editForm.nic} onChange={setE('nic')} placeholder="National ID or Passport number" />
-            {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
-            <div style={{ display:'flex', gap:8 }}>
+            <EditFields />
+            {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', margin:'12px 0' }}>{err}</div>}
+            <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
               <Button fullWidth loading={saving} onClick={saveEdit}>Save Changes</Button>
               <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
             </div>
@@ -201,23 +296,31 @@ export default function AdminLandlords() {
       </Modal>
 
       {/* Detail Modal */}
-      <Modal open={!!detailModal} onClose={() => setDetailModal(null)} title="Landlord Details">
+      <Modal open={!!detailModal} onClose={() => setDetailModal(null)} title="Landlord Details" maxWidth={480}>
         {detailModal && (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            {[
-              ['Full Name',      detailModal.full_name],
-              ['Username',       detailModal.username  || '—'],
-              ['Email',          detailModal.email     || '—'],
-              ['Phone',          detailModal.phone     || '—'],
-              ['NIC / Passport', detailModal.nic       || '—'],
-              ['Status',         detailModal.is_active ? 'Active' : 'Suspended'],
-              ['Member Since',   new Date(detailModal.created_at).toLocaleDateString('en-LK')],
-            ].map(([label, value]) => (
-              <div key={label} style={{ background:'var(--surface2)', borderRadius:'var(--radius)', padding:'10px 12px' }}>
-                <div style={{ fontSize:11, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:3 }}>{label}</div>
-                <div style={{ fontWeight:500, fontSize:14 }}>{value}</div>
-              </div>
-            ))}
+          <div>
+            <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Personal Information</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:'1rem' }}>
+              {[
+                ['Full Name',    detailModal.full_name],
+                ['Username',     detailModal.username     || '—'],
+                ['Contact No.',  detailModal.phone        || '—'],
+                ['Email',        detailModal.email        || '—'],
+                ['NIC/Passport', detailModal.nic          || '—'],
+                ['Status',       detailModal.is_active ? 'Active' : 'Suspended'],
+                ['Member Since', new Date(detailModal.created_at).toLocaleDateString('en-LK')],
+              ].map(([label, value]) => (
+                <div key={label} style={{ background:'var(--surface2)', borderRadius:'var(--radius)', padding:'10px 12px' }}>
+                  <div style={{ fontSize:11, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:3 }}>{label}</div>
+                  <div style={{ fontWeight:500, fontSize:14 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Address</div>
+            <div style={{ background:'var(--surface2)', borderRadius:'var(--radius)', padding:'10px 12px', fontSize:14 }}>
+              {[detailModal.address_line1, detailModal.address_line2, detailModal.city, detailModal.postal_code, detailModal.country]
+                .filter(Boolean).join(', ') || '—'}
+            </div>
           </div>
         )}
       </Modal>
