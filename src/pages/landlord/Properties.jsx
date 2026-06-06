@@ -23,19 +23,49 @@ export default function Properties() {
   const [editing, setEditing]       = useState(null)
   const [form, setForm] = useState({ property_code:'', name:'', address:'', city:'', district:'', country:'Sri Lanka', property_type:'Residential', image:null })
   const [unitForm, setUnitForm] = useState({ unit_number:'', floor:'', monthly_rent:'', electricity_charges:'', water_charges:'', deposit_amount:'', description:'' })
-  const [saving, setSaving] = useState(false)
-  const [err, setErr]       = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [err, setErr]           = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
+  const [fetchErr, setFetchErr] = useState('')
 
   useEffect(() => { fetchProperties() }, [])
 
   async function fetchProperties() {
-    const { data, error } = await supabase
+    setFetchErr('')
+    // Fetch properties first
+    const { data: props, error: propErr } = await supabase
       .from('properties')
-      .select('*, units(id, unit_number, floor, monthly_rent, electricity_charges, water_charges, deposit_amount, is_occupied, description)')
+      .select('*')
       .eq('landlord_id', profile.id)
       .order('created_at', { ascending: false })
-    if (error) console.error('fetchProperties error:', error.message)
-    setProperties(data || [])
+
+    if (propErr) {
+      setFetchErr(`Error loading properties: ${propErr.message}`)
+      setLoading(false)
+      return
+    }
+
+    // Fetch units separately to avoid RLS join issues
+    if (props && props.length > 0) {
+      const propIds = props.map(p => p.id)
+      const { data: units, error: unitErr } = await supabase
+        .from('units')
+        .select('id, unit_number, floor, monthly_rent, electricity_charges, water_charges, deposit_amount, is_occupied, description, property_id')
+        .in('property_id', propIds)
+
+      if (!unitErr) {
+        // Attach units to their properties
+        const propsWithUnits = props.map(p => ({
+          ...p,
+          units: units?.filter(u => u.property_id === p.id) || []
+        }))
+        setProperties(propsWithUnits)
+      } else {
+        setProperties(props.map(p => ({ ...p, units: [] })))
+      }
+    } else {
+      setProperties([])
+    }
     setLoading(false)
   }
 
@@ -73,8 +103,10 @@ export default function Properties() {
     if (error) {
       setErr(error.message || 'Failed to save property.')
     } else {
+      setSuccessMsg(editing ? '✓ Property updated successfully.' : '✓ Property added successfully.')
       setModal(false)
       fetchProperties()
+      setTimeout(() => setSuccessMsg(''), 4000)
     }
     setSaving(false)
   }
@@ -142,6 +174,17 @@ export default function Properties() {
     <div>
       <PageHeader title="Properties" sub="Manage your rental properties and units"
         action={<Button onClick={openAdd}>+ Add Property</Button>} />
+
+      {successMsg && (
+        <div style={{ background:'var(--green-bg)', color:'var(--green-text)', fontSize:13, padding:'12px 16px', borderRadius:'var(--radius)', marginBottom:'1rem' }}>
+          {successMsg}
+        </div>
+      )}
+      {fetchErr && (
+        <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'12px 16px', borderRadius:'var(--radius)', marginBottom:'1rem' }}>
+          {fetchErr}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ display:'flex', justifyContent:'center', padding:'3rem' }}>
