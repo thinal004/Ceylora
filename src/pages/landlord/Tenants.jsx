@@ -8,6 +8,7 @@ import { Input, Select } from '../../components/ui/Input'
 import Table, { Tr, Td } from '../../components/ui/Table'
 import Badge from '../../components/ui/Badge'
 import ImageInput from '../../components/ui/ImageInput'
+import { calcOutstanding } from '../../lib/outstanding'
 
 export default function Tenants() {
   const { profile } = useAuth()
@@ -35,7 +36,7 @@ export default function Tenants() {
   const [assignForm, setAssignForm] = useState({
     tenant_id:'', unit_id:'', monthly_rent:'',
     start_date: new Date().toISOString().split('T')[0],
-    deposit_amount:'', notes:''
+    deposit_amount:'', rent_due_day:'1', notes:''
   })
 
   useEffect(() => { fetchData() }, [])
@@ -63,23 +64,36 @@ export default function Tenants() {
 
     // 3. Get all units
     const { data: units } = pIds.length
-      ? await supabase.from('units').select('id, unit_number, monthly_rent, is_occupied, property_id').in('property_id', pIds)
+      ? await supabase.from('units').select('id, unit_number, monthly_rent, electricity_charges, water_charges, is_occupied, property_id').in('property_id', pIds)
       : { data: [] }
 
     // 4. Get active tenancies
     const unitIds = (units || []).map(u => u.id)
     const { data: activeTenancies } = unitIds.length
-      ? await supabase.from('tenancies').select('*, units(unit_number, property_id)').in('unit_id', unitIds).eq('is_active', true)
+      ? await supabase.from('tenancies').select('*, units(unit_number, property_id, electricity_charges, water_charges)').in('unit_id', unitIds).eq('is_active', true)
+      : { data: [] }
+
+    // 5. Get all payments for these tenancies
+    const tenancyIds = (activeTenancies || []).map(t => t.id)
+    const { data: allPayments } = tenancyIds.length
+      ? await supabase.from('payments').select('id, tenancy_id, amount, status').in('tenancy_id', tenancyIds)
       : { data: [] }
 
     // Attach property names to units
     const unitsWithProps = (units || []).map(u => ({
       ...u,
-      propertyName: props?.find(p => p.id === u.property_id)?.name || ''
+      propertyName: props?.find(p => p.id === u.property_id)?.name || '',
+      total_rent: parseFloat(u.monthly_rent || 0) + parseFloat(u.electricity_charges || 0) + parseFloat(u.water_charges || 0)
+    }))
+
+    // Attach payments to tenancies for outstanding calc
+    const tenanciesWithPayments = (activeTenancies || []).map(t => ({
+      ...t,
+      payments: (allPayments || []).filter(p => p.tenancy_id === t.id)
     }))
 
     setTenants(tenantProfiles || [])
-    setTenancies(activeTenancies || [])
+    setTenancies(tenanciesWithPayments)
     setVacantUnits(unitsWithProps.filter(u => !u.is_occupied))
     setLoading(false)
   }
@@ -114,7 +128,7 @@ export default function Tenants() {
       tenant_id: tenantId,
       unit_id: '', monthly_rent: '',
       start_date: new Date().toISOString().split('T')[0],
-      deposit_amount: '', notes: ''
+      deposit_amount: '', rent_due_day: '1', notes: ''
     })
     setErr(''); setModal('assign')
   }
@@ -182,6 +196,7 @@ export default function Tenants() {
       start_date:     assignForm.start_date,
       monthly_rent:   parseFloat(assignForm.monthly_rent),
       deposit_amount: parseFloat(assignForm.deposit_amount || 0),
+      rent_due_day:   parseInt(assignForm.rent_due_day || 1),
       notes:          assignForm.notes,
       is_active:      true,
     })
@@ -233,7 +248,7 @@ export default function Tenants() {
         </div>
       ) : (
         <Table
-          headers={['Tenant', 'Contact', 'NIC', 'Status', 'Unit', 'Actions']}
+          headers={['Tenant', 'Contact', 'NIC', 'Status', 'Unit', 'Outstanding', 'Actions']}
           empty={{ title:'No tenants yet', sub:'Create a tenant account to get started.' }}>
           {tenants.map(t => {
             const tenancy = getTenancy(t.id)
@@ -286,6 +301,16 @@ export default function Tenants() {
                   ) : (
                     <span style={{ color:'var(--text3)', fontSize:12 }}>—</span>
                   )}
+                </Td>
+
+                {/* Outstanding */}
+                <Td>
+                  {isAssigned ? (() => {
+                    const outstanding = calcOutstanding(tenancy, tenancy.units, tenancy.payments || [])
+                    return outstanding > 0
+                      ? <span style={{ fontFamily:'monospace', fontSize:13, color:'var(--red-text)', fontWeight:600 }}>{LKR(outstanding)}</span>
+                      : <span style={{ fontSize:12, color:'var(--green-text)' }}>✓ Clear</span>
+                  })() : <span style={{ color:'var(--text3)', fontSize:12 }}>—</span>}
                 </Td>
 
                 {/* Actions */}
@@ -382,15 +407,45 @@ export default function Tenants() {
       <Modal open={modal === 'assign'} onClose={() => setModal(false)} title="Assign Unit to Tenant" maxWidth={480}>
         <Select label="Select Unit *" value={assignForm.unit_id} onChange={e => {
           const u = vacantUnits.find(u => u.id === e.target.value)
-          setAssignForm(f => ({ ...f, unit_id: e.target.value, monthly_rent: u?.monthly_rent || '' }))
+          const total = u ? parseFloat(u.monthly_rent||0) + parseFloat(u.electricity_charges||0) + parseFloat(u.water_charges||0) : ''
+          setAssignForm(f => ({ ...f, unit_id: e.target.value, monthly_rent: total || '' }))
         }}>
           <option value="">Choose a vacant unit</option>
           {vacantUnits.map(u => (
-            <option key={u.id} value={u.id}>{u.propertyName} — {u.unit_number} ({LKR(u.monthly_rent)}/mo)</option>
+            <option key={u.id} value={u.id}>{u.propertyName} — {u.unit_number} ({LKR(u.total_rent)}/mo)</option>
           ))}
         </Select>
-        <Input label="Monthly Rent (LKR) *"  type="number" value={assignForm.monthly_rent}   onChange={setA('monthly_rent')}   hint="Can differ from unit base rent" />
-        <Input label="Start Date *"          type="date"   value={assignForm.start_date}      onChange={setA('start_date')} />
+
+        {/* Rent breakdown */}
+        {assignForm.unit_id && (() => {
+          const u = vacantUnits.find(u => u.id === assignForm.unit_id)
+          if (!u) return null
+          const elec  = parseFloat(u.electricity_charges || 0)
+          const water = parseFloat(u.water_charges || 0)
+          if (elec === 0 && water === 0) return null
+          return (
+            <div style={{ background:'var(--surface2)', borderRadius:'var(--radius)', padding:'10px 14px', fontSize:12, color:'var(--text2)', marginBottom:'0.75rem' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>Monthly Rent</span><span>{LKR(u.monthly_rent)}</span>
+              </div>
+              {elec > 0 && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>Electricity</span><span>{LKR(elec)}</span>
+              </div>}
+              {water > 0 && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>Water</span><span>{LKR(water)}</span>
+              </div>}
+              <div style={{ display:'flex', justifyContent:'space-between', fontWeight:600, borderTop:'1px solid var(--border)', paddingTop:6, marginTop:4 }}>
+                <span>Total</span><span>{LKR(u.total_rent)}</span>
+              </div>
+            </div>
+          )
+        })()}
+
+        <Input label="Total Monthly Rent (LKR) *" type="number" value={assignForm.monthly_rent} onChange={setA('monthly_rent')} hint="Auto-calculated from unit — edit if needed" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <Input label="Start Date *"         type="date"   value={assignForm.start_date}    onChange={setA('start_date')} />
+          <Input label="Rent Due Day *"        type="number" value={assignForm.rent_due_day}  onChange={setA('rent_due_day')} hint="Day of month (1–28)" min="1" max="28" />
+        </div>
         <Input label="Security Deposit (LKR)" type="number" value={assignForm.deposit_amount} onChange={setA('deposit_amount')} placeholder="0" />
         <Input label="Notes"                              value={assignForm.notes}            onChange={setA('notes')}           placeholder="Optional notes" />
         {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', marginBottom:12 }}>{err}</div>}
