@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { supabase, createUser } from '../../lib/supabase'
+import { supabase, createUser, evictDbCache } from '../../lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import PageHeader from '../../components/ui/PageHeader'
 import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
@@ -10,11 +11,13 @@ import Badge from '../../components/ui/Badge'
 const EMPTY_FORM = {
   username:'', password:'', full_name:'', email:'', phone:'', nic:'',
   address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
+  db_url:'', db_anon_key:'', db_label:'',
 }
 
 const EMPTY_EDIT = {
   username:'', full_name:'', email:'', phone:'', nic:'',
   address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
+  db_url:'', db_anon_key:'', db_label:'', conn_id:null,
 }
 
 export default function AdminLandlords() {
@@ -29,8 +32,29 @@ export default function AdminLandlords() {
   const [successMsg, setSuccessMsg]   = useState('')
   const [form, setForm]       = useState(EMPTY_FORM)
   const [editForm, setEditForm] = useState(EMPTY_EDIT)
+  const [testing, setTesting]   = useState(false)
+  const [testResult, setTestResult] = useState(null)
 
   useEffect(() => { fetchLandlords() }, [])
+
+  // ── Live DB connection test ──
+  async function testConnection(url, key) {
+    setTestResult(null)
+    if (!url || !key) { setTestResult({ ok:false, msg:'Enter both URL and Anon Key first.' }); return }
+    setTesting(true)
+    try {
+      const client = createClient(url.trim(), key.trim(), { auth:{ persistSession:false } })
+      const { error } = await client.from('profiles').select('id').limit(1)
+      if (error && error.code !== 'PGRST116') {
+        setTestResult({ ok:false, msg:`Failed: ${error.message}` })
+      } else {
+        setTestResult({ ok:true, msg:'Connection successful! Database reachable.' })
+      }
+    } catch (e) {
+      setTestResult({ ok:false, msg:`Error: ${e.message}` })
+    }
+    setTesting(false)
+  }
 
   async function fetchLandlords() {
     const { data } = await supabase
@@ -44,11 +68,12 @@ export default function AdminLandlords() {
 
   function openAdd() {
     setForm(EMPTY_FORM)
-    setErr(''); setSuccessMsg(''); setModal('create')
+    setErr(''); setSuccessMsg(''); setTestResult(null); setModal('create')
   }
 
-  function openEdit(landlord) {
+  async function openEdit(landlord) {
     setEditTarget(landlord)
+    setErr(''); setTestResult(null)
     setEditForm({
       username:      landlord.username      || '',
       full_name:     landlord.full_name     || '',
@@ -60,8 +85,25 @@ export default function AdminLandlords() {
       city:          landlord.city          || '',
       postal_code:   landlord.postal_code   || '',
       country:       landlord.country       || 'Sri Lanka',
+      db_url:'', db_anon_key:'', db_label:'', conn_id:null,
     })
-    setErr(''); setModal('edit')
+    setModal('edit')
+
+    // Load existing DB connection for this landlord, if any
+    const { data: conn } = await supabase
+      .from('tenant_connections')
+      .select('*')
+      .eq('landlord_id', landlord.id)
+      .maybeSingle()
+    if (conn) {
+      setEditForm(x => ({
+        ...x,
+        db_url:      conn.db_url      || '',
+        db_anon_key: conn.db_anon_key || '',
+        db_label:    conn.db_label    || '',
+        conn_id:     conn.id,
+      }))
+    }
   }
 
   async function createLandlord() {
@@ -93,6 +135,17 @@ export default function AdminLandlords() {
           postal_code:   form.postal_code   || null,
           country:       form.country       || 'Sri Lanka',
         }).eq('id', result.userId)
+
+        // Save DB connection if provided
+        if (form.db_url && form.db_anon_key) {
+          await supabase.from('tenant_connections').insert({
+            landlord_id: result.userId,
+            db_url:      form.db_url.trim(),
+            db_anon_key: form.db_anon_key.trim(),
+            db_label:    form.db_label.trim() || null,
+            is_active:   true,
+          })
+        }
       }
 
       setSuccessMsg(`✓ Landlord account created! Username: ${form.username}`)
@@ -125,6 +178,29 @@ export default function AdminLandlords() {
         })
         .eq('id', editTarget.id)
       if (error) throw new Error(error.message)
+
+      // Upsert / remove DB connection
+      const hasConn = editForm.db_url && editForm.db_anon_key
+      if (hasConn) {
+        const payload = {
+          landlord_id: editTarget.id,
+          db_url:      editForm.db_url.trim(),
+          db_anon_key: editForm.db_anon_key.trim(),
+          db_label:    editForm.db_label.trim() || null,
+          is_active:   true,
+        }
+        if (editForm.conn_id) {
+          await supabase.from('tenant_connections').update(payload).eq('id', editForm.conn_id)
+        } else {
+          await supabase.from('tenant_connections').insert(payload)
+        }
+        evictDbCache(editTarget.id)
+      } else if (editForm.conn_id) {
+        // Connection fields cleared → remove the connection record
+        await supabase.from('tenant_connections').delete().eq('id', editForm.conn_id)
+        evictDbCache(editTarget.id)
+      }
+
       setModal(false)
       fetchLandlords()
     } catch (e) {
@@ -185,7 +261,45 @@ export default function AdminLandlords() {
           <Input label="Postal Code" value={form.postal_code} onChange={set('postal_code')} placeholder="e.g. 10100" />
         </div>
         <Input label="Country" value={form.country} onChange={set('country')} placeholder="Sri Lanka" />
+
+        <SectionLabel text="Database Connection (optional)" />
+        <ConnHint />
+        <Input label="Connection Label" value={form.db_label} onChange={set('db_label')} placeholder="e.g. Perera Properties Server" />
+        <Input label="Supabase Project URL" value={form.db_url} onChange={set('db_url')} placeholder="https://xxxx.supabase.co" />
+        <ConnKeyField value={form.db_anon_key} onChange={set('db_anon_key')} />
+        <ConnTest url={form.db_url} keyVal={form.db_anon_key} />
       </>
+    )
+  }
+
+  // ── Shared connection UI bits ──
+  function ConnHint() {
+    return (
+      <div style={{ background:'var(--blue-bg)', border:'1px solid #BFDBFE', borderRadius:'var(--radius)', padding:'9px 12px', marginBottom:10, fontSize:12, color:'var(--blue-text)' }}>
+        Leave blank to use the shared master database. Enter the landlord's own Supabase project to isolate their tenants & data. Use the <strong>anon</strong> key only — never the service_role key.
+      </div>
+    )
+  }
+  function ConnKeyField({ value, onChange }) {
+    return (
+      <div style={{ marginBottom:10 }}>
+        <label style={{ display:'block', fontSize:13, fontWeight:500, marginBottom:6 }}>Anon Key</label>
+        <textarea value={value} onChange={onChange} rows={3}
+          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          style={{ width:'100%', padding:'9px 12px', borderRadius:'var(--radius)', border:'1px solid var(--border)', fontSize:12, fontFamily:'monospace', resize:'vertical', background:'var(--surface)', color:'var(--text)', lineHeight:1.5 }} />
+      </div>
+    )
+  }
+  function ConnTest({ url, keyVal }) {
+    return (
+      <div style={{ marginBottom:6 }}>
+        <Button size="sm" variant="secondary" type="button" loading={testing} onClick={() => testConnection(url, keyVal)}>🔌 Test Connection</Button>
+        {testResult && (
+          <div style={{ marginTop:8, background: testResult.ok ? 'var(--green-bg)' : 'var(--red-bg)', color: testResult.ok ? 'var(--green-text)' : 'var(--red-text)', padding:'8px 12px', borderRadius:'var(--radius)', fontSize:13 }}>
+            {testResult.ok ? '✓' : '✗'} {testResult.msg}
+          </div>
+        )}
+      </div>
     )
   }
 
@@ -211,6 +325,13 @@ export default function AdminLandlords() {
           <Input label="Postal Code" value={editForm.postal_code} onChange={setE('postal_code')} placeholder="e.g. 10100" />
         </div>
         <Input label="Country" value={editForm.country} onChange={setE('country')} placeholder="Sri Lanka" />
+
+        <SectionLabel text="Database Connection (optional)" />
+        <ConnHint />
+        <Input label="Connection Label" value={editForm.db_label} onChange={setE('db_label')} placeholder="e.g. Perera Properties Server" />
+        <Input label="Supabase Project URL" value={editForm.db_url} onChange={setE('db_url')} placeholder="https://xxxx.supabase.co" />
+        <ConnKeyField value={editForm.db_anon_key} onChange={setE('db_anon_key')} />
+        <ConnTest url={editForm.db_url} keyVal={editForm.db_anon_key} />
       </>
     )
   }
