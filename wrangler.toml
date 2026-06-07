@@ -1,0 +1,6 @@
+name = "ceylora"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-23"
+
+# Required so @supabase/supabase-js can run inside Pages Functions
+compatibility_flags = ["nodejs_compat"]

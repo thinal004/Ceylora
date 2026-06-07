@@ -1,1 +1,7 @@
-/* /index.html 200
+# Netlify: map the host-agnostic /api path to the Netlify function.
+# (On Cloudflare Pages, the Function at /functions/api/create-user.js
+#  handles this route directly and takes precedence over _redirects.)
+/api/create-user  /.netlify/functions/create-user  200
+
+# SPA fallback
+/*  /index.html  200

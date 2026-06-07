@@ -142,7 +142,7 @@ export async function createUser({ username, password, email, fullName, phone, n
   const token = session?.access_token
   if (!token) throw new Error('Not authenticated')
 
-  const res = await fetch('/.netlify/functions/create-user', {
+  const res = await fetch('/api/create-user', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ username, password, email, fullName, phone, nic, role, address, emergencyContactName, emergencyContactPhone, landlordId })
