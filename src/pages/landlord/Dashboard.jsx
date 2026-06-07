@@ -8,7 +8,7 @@ import Badge from '../../components/ui/Badge'
 import Table, { Tr, Td } from '../../components/ui/Table'
 
 export default function Dashboard() {
-  const { profile } = useAuth()
+  const { profile, db } = useAuth()
   const [stats, setStats]               = useState(null)
   const [recentPayments, setRecentPayments] = useState([])
   const [outstandingList, setOutstandingList] = useState([])
@@ -18,13 +18,19 @@ export default function Dashboard() {
   const currentYear  = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
-  useEffect(() => { fetchDashboard() }, [])
+  useEffect(() => { fetchDashboard() }, [db])
 
   async function fetchDashboard() {
     setLoading(true)
     try {
-      // 1. Properties
-      const { data: properties } = await supabase
+      // Tenant names from the landlord DB profiles table
+      const { data: tprofiles } = await db
+        .from('profiles').select('id, full_name')
+        .eq('role', 'tenant').eq('landlord_id', profile.id)
+      const nameMap = Object.fromEntries((tprofiles || []).map(p => [p.id, p.full_name]))
+
+      // 1. Properties — OPERATIONAL DB
+      const { data: properties } = await db
         .from('properties').select('id').eq('landlord_id', profile.id)
       const propertyIds = (properties || []).map(p => p.id)
 
@@ -34,24 +40,26 @@ export default function Dashboard() {
       }
 
       // 2. Units
-      const { data: units } = await supabase
+      const { data: units } = await db
         .from('units')
         .select('id, monthly_rent, electricity_charges, water_charges, is_occupied, property_id')
         .in('property_id', propertyIds)
       const unitIds = (units || []).map(u => u.id)
 
       // 3. Active tenancies
-      const { data: tenancies } = await supabase
+      const { data: tenanciesRaw } = await db
         .from('tenancies')
-        .select('id, monthly_rent, start_date, rent_due_day, unit_id, tenant_id, profiles:tenant_id(full_name), units(unit_number, electricity_charges, water_charges)')
+        .select('id, monthly_rent, start_date, rent_due_day, unit_id, tenant_id, units(unit_number, electricity_charges, water_charges)')
         .in('unit_id', unitIds)
         .eq('is_active', true)
-      const tenancyIds = (tenancies || []).map(t => t.id)
+      const tenancies = (tenanciesRaw || []).map(t => ({ ...t, tenantName: nameMap[t.tenant_id] || '—' }))
+      const tenancyIds = tenancies.map(t => t.id)
 
       // 4. All payments for these tenancies
-      const { data: allPayments } = tenancyIds.length
-        ? await supabase.from('payments').select('id, tenancy_id, amount, status, period_year, period_month, paid_date, payment_method, created_at, tenancies(units(unit_number), profiles:tenant_id(full_name))').in('tenancy_id', tenancyIds).order('created_at', { ascending: false })
+      const { data: allPaymentsRaw } = tenancyIds.length
+        ? await db.from('payments').select('id, tenancy_id, amount, status, period_year, period_month, paid_date, payment_method, created_at, tenancies(tenant_id, units(unit_number))').in('tenancy_id', tenancyIds).order('created_at', { ascending: false })
         : { data: [] }
+      const allPayments = (allPaymentsRaw || []).map(p => ({ ...p, tenantName: nameMap[p.tenancies?.tenant_id] || '—' }))
 
       // 5. Stats
       const totalUnits    = units?.length || 0
@@ -71,7 +79,7 @@ export default function Dashboard() {
         const payments = (allPayments || []).filter(p => p.tenancy_id === t.id)
         const amount   = calcOutstanding(t, unit, payments)
         return {
-          tenantName: t.profiles?.full_name || '—',
+          tenantName: t.tenantName || '—',
           unitNumber: t.units?.unit_number  || '—',
           amount,
         }
@@ -146,7 +154,7 @@ export default function Dashboard() {
             const badgeL = p.status === 'confirmed' ? '✓ Confirmed' : p.status === 'pending' ? '⏳ Pending' : 'Overdue'
             return (
               <Tr key={p.id}>
-                <Td><strong>{p.tenancies?.profiles?.full_name || '—'}</strong></Td>
+                <Td><strong>{p.tenantName || '—'}</strong></Td>
                 <Td>{p.tenancies?.units?.unit_number || '—'}</Td>
                 <Td style={{ color:'var(--text2)' }}>{MONTHS[p.period_month-1]} {p.period_year}</Td>
                 <Td><span style={{ fontFamily:'monospace', fontSize:13 }}>{LKR(p.amount)}</span></Td>

@@ -12,7 +12,7 @@ import Badge from '../../components/ui/Badge'
 const PAYMENT_METHODS = ['Bank Transfer','Cash','Cheque','Online Transfer','Other']
 
 export default function Payments() {
-  const { profile } = useAuth()
+  const { profile, db } = useAuth()
   const [payments, setPayments]         = useState([])
   const [tenancies, setTenancies]       = useState([])
   const [units, setUnits]               = useState([])
@@ -27,48 +27,56 @@ export default function Payments() {
   const [saving, setSaving]             = useState(false)
   const now = new Date()
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { fetchData() }, [db])
 
   async function fetchData() {
-    const { data: props } = await supabase.from('properties').select('id').eq('landlord_id', profile.id)
+    // Tenant names come from the landlord DB profiles table
+    const { data: tprofiles } = await db
+      .from('profiles').select('id, full_name')
+      .eq('role', 'tenant').eq('landlord_id', profile.id)
+    const nameMap = Object.fromEntries((tprofiles || []).map(p => [p.id, p.full_name]))
+
+    const { data: props } = await db.from('properties').select('id').eq('landlord_id', profile.id)
     const pIds = (props || []).map(p => p.id)
     if (!pIds.length) { setLoading(false); return }
 
-    const { data: fetchedUnits } = await supabase
+    const { data: fetchedUnits } = await db
       .from('units')
       .select('id, monthly_rent, electricity_charges, water_charges, unit_number, property_id')
       .in('property_id', pIds)
     const uIds = (fetchedUnits || []).map(u => u.id)
     setUnits(fetchedUnits || [])
 
-    const { data: ten } = await supabase
+    const { data: tenRaw } = await db
       .from('tenancies')
-      .select('id, monthly_rent, start_date, rent_due_day, unit_id, units(unit_number, electricity_charges, water_charges, properties(name)), profiles:tenant_id(full_name)')
+      .select('id, monthly_rent, start_date, rent_due_day, unit_id, tenant_id, units(unit_number, electricity_charges, water_charges, properties(name))')
       .in('unit_id', uIds)
       .eq('is_active', true)
-    setTenancies(ten || [])
+    const ten = (tenRaw || []).map(t => ({ ...t, tenantName: nameMap[t.tenant_id] || '—' }))
+    setTenancies(ten)
 
-    const tenIds = (ten || []).map(t => t.id)
+    const tenIds = ten.map(t => t.id)
     if (!tenIds.length) { setLoading(false); return }
 
-    const { data: pays } = await supabase
+    const { data: paysRaw } = await db
       .from('payments')
-      .select('*, tenancies(monthly_rent, unit_id, units(unit_number, properties(name)), profiles:tenant_id(full_name))')
+      .select('*, tenancies(monthly_rent, unit_id, tenant_id, units(unit_number, properties(name)))')
       .in('tenancy_id', tenIds)
       .order('created_at', { ascending: false })
-    setPayments(pays || [])
+    const pays = (paysRaw || []).map(p => ({ ...p, tenantName: nameMap[p.tenancies?.tenant_id] || '—' }))
+    setPayments(pays)
 
     // Calculate outstanding per tenancy
-    const outstanding = (ten || []).map(t => {
+    const outstanding = ten.map(t => {
       const unit     = (fetchedUnits || []).find(u => u.id === t.unit_id)
-      const tPays    = (pays || []).filter(p => p.tenancy_id === t.id)
+      const tPays    = pays.filter(p => p.tenancy_id === t.id)
       const amount   = calcOutstanding(t, unit, tPays)
       const monthlyRent = parseFloat(t.monthly_rent || 0)
         + parseFloat(unit?.electricity_charges || 0)
         + parseFloat(unit?.water_charges || 0)
       return {
         tenancy:     t,
-        tenantName:  t.profiles?.full_name || '—',
+        tenantName:  t.tenantName,
         unitNumber:  t.units?.unit_number  || '—',
         propertyName: t.units?.properties?.name || '—',
         monthlyRent,
@@ -110,15 +118,15 @@ export default function Payments() {
       confirmed_at: new Date().toISOString(), confirmed_by: profile.id,
     }
     if (existing) {
-      await supabase.from('payments').update(payload).eq('id', existing.id)
+      await db.from('payments').update(payload).eq('id', existing.id)
     } else {
-      await supabase.from('payments').insert(payload)
+      await db.from('payments').insert(payload)
     }
     setSaving(false); setMarkModal(null); fetchData()
   }
 
   async function confirmPending(paymentId) {
-    await supabase.from('payments').update({
+    await db.from('payments').update({
       status:'confirmed',
       confirmed_at: new Date().toISOString(),
       confirmed_by: profile.id,
@@ -202,7 +210,7 @@ export default function Payments() {
             <select value={filterTenancy} onChange={e => setFilterTenancy(e.target.value)}
               style={{ padding:'8px 12px', border:'1px solid var(--border)', borderRadius:'var(--radius)', fontFamily:'inherit', fontSize:14, background:'var(--surface)', color:'var(--text)' }}>
               <option value="">All Tenants</option>
-              {tenancies.map(t => <option key={t.id} value={t.id}>{t.profiles?.full_name} — {t.units?.unit_number}</option>)}
+              {tenancies.map(t => <option key={t.id} value={t.id}>{t.tenantName} — {t.units?.unit_number}</option>)}
             </select>
             {(filterStatus || filterTenancy) && (
               <Button size="sm" variant="ghost" onClick={() => { setFilterStatus(''); setFilterTenancy('') }}>Clear Filters</Button>
@@ -217,7 +225,7 @@ export default function Payments() {
               const badgeL = p.status === 'confirmed' ? '✓ Confirmed' : p.status === 'pending' ? '⏳ Pending' : 'Overdue'
               return (
                 <Tr key={p.id}>
-                  <Td><strong>{p.tenancies?.profiles?.full_name || '—'}</strong></Td>
+                  <Td><strong>{p.tenantName || '—'}</strong></Td>
                   <Td style={{ color:'var(--text2)' }}>{p.tenancies?.units?.unit_number || '—'}</Td>
                   <Td style={{ color:'var(--text2)' }}>{MONTHS[p.period_month-1]} {p.period_year}</Td>
                   <Td><span style={{ fontFamily:'monospace', fontSize:13 }}>{LKR(p.amount)}</span></Td>
@@ -252,7 +260,7 @@ export default function Payments() {
             setForm(f => ({ ...f, amount: total || '' }))
           }}>
             <option value="">Select tenant</option>
-            {tenancies.map(t => <option key={t.id} value={t.id}>{t.profiles?.full_name} — {t.units?.unit_number}</option>)}
+            {tenancies.map(t => <option key={t.id} value={t.id}>{t.tenantName} — {t.units?.unit_number}</option>)}
           </Select>
         )}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
@@ -279,7 +287,7 @@ export default function Payments() {
           <div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:'1rem' }}>
               {[
-                ['Tenant', receiptModal.tenancies?.profiles?.full_name],
+                ['Tenant', receiptModal.tenantName],
                 ['Unit',   receiptModal.tenancies?.units?.unit_number],
                 ['Period', `${MONTHS[receiptModal.period_month-1]} ${receiptModal.period_year}`],
                 ['Amount', LKR(receiptModal.amount)],

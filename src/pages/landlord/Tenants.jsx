@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { supabase, createUser, LKR } from '../../lib/supabase'
+import { createTenantOnLandlordDb, LKR } from '../../lib/supabase'
 import PageHeader from '../../components/ui/PageHeader'
 import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
@@ -11,7 +11,7 @@ import ImageInput from '../../components/ui/ImageInput'
 import { calcOutstanding } from '../../lib/outstanding'
 
 export default function Tenants() {
-  const { profile } = useAuth()
+  const { profile, db } = useAuth()
 
   const [tenants, setTenants]       = useState([])   // all tenant profiles under this landlord
   const [tenancies, setTenancies]   = useState([])   // active tenancies
@@ -39,13 +39,13 @@ export default function Tenants() {
     deposit_amount:'', rent_due_day:'1', notes:''
   })
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { fetchData() }, [db])
 
   async function fetchData() {
     setFetchErr('')
 
-    // 1. Get all tenants under this landlord
-    const { data: tenantProfiles, error: tErr } = await supabase
+    // 1. Get all tenants under this landlord — TENANT PROFILES LIVE ON LANDLORD DB
+    const { data: tenantProfiles, error: tErr } = await db
       .from('profiles')
       .select('*')
       .eq('role', 'tenant')
@@ -54,8 +54,8 @@ export default function Tenants() {
 
     if (tErr) { setFetchErr(tErr.message); setLoading(false); return }
 
-    // 2. Get all properties for this landlord
-    const { data: props } = await supabase
+    // 2. Get all properties for this landlord — OPERATIONAL DB
+    const { data: props } = await db
       .from('properties')
       .select('id, name')
       .eq('landlord_id', profile.id)
@@ -64,19 +64,19 @@ export default function Tenants() {
 
     // 3. Get all units
     const { data: units } = pIds.length
-      ? await supabase.from('units').select('id, unit_number, monthly_rent, electricity_charges, water_charges, is_occupied, property_id').in('property_id', pIds)
+      ? await db.from('units').select('id, unit_number, monthly_rent, electricity_charges, water_charges, is_occupied, property_id').in('property_id', pIds)
       : { data: [] }
 
-    // 4. Get active tenancies
+    // 4. Get active tenancies (units join is within the same operational DB)
     const unitIds = (units || []).map(u => u.id)
     const { data: activeTenancies } = unitIds.length
-      ? await supabase.from('tenancies').select('*, units(unit_number, property_id, electricity_charges, water_charges)').in('unit_id', unitIds).eq('is_active', true)
+      ? await db.from('tenancies').select('*, units(unit_number, property_id, electricity_charges, water_charges)').in('unit_id', unitIds).eq('is_active', true)
       : { data: [] }
 
     // 5. Get all payments for these tenancies
     const tenancyIds = (activeTenancies || []).map(t => t.id)
     const { data: allPayments } = tenancyIds.length
-      ? await supabase.from('payments').select('id, tenancy_id, amount, status').in('tenancy_id', tenancyIds)
+      ? await db.from('payments').select('id, tenancy_id, amount, status').in('tenancy_id', tenancyIds)
       : { data: [] }
 
     // Attach property names to units
@@ -141,21 +141,18 @@ export default function Tenants() {
     if (createForm.password.length < 6) { setErr('Password must be at least 6 characters.'); return }
     setSaving(true); setErr(''); setSuccessMsg('')
     try {
-      const result = await createUser({
+      await createTenantOnLandlordDb(db, profile.id, {
         username:             createForm.username,
         password:             createForm.password,
         fullName:             createForm.full_name,
         email:                createForm.email,
         phone:                createForm.phone,
         nic:                  createForm.nic,
-        role:                 'tenant',
         address:              createForm.address,
         emergencyContactName: createForm.emergency_contact_name,
         emergencyContactPhone:createForm.emergency_contact_phone,
+        photo:                createForm.photo,
       })
-      if (createForm.photo && result?.userId) {
-        await supabase.from('profiles').update({ photo: createForm.photo }).eq('id', result.userId)
-      }
       setSuccessMsg(`✓ Tenant created! Username: ${createForm.username}`)
       setCreateForm(EMPTY_CREATE)
       fetchData()
@@ -169,7 +166,7 @@ export default function Tenants() {
     if (!editForm.full_name) { setErr('Full name is required.'); return }
     if (!editForm.phone)     { setErr('Phone number is required.'); return }
     setSaving(true); setErr('')
-    const { error } = await supabase.from('profiles').update({
+    const { error } = await db.from('profiles').update({
       full_name:               editForm.full_name.trim(),
       email:                   editForm.email.trim()   || null,
       phone:                   editForm.phone.trim()   || null,
@@ -190,7 +187,7 @@ export default function Tenants() {
       setErr('Tenant, unit, rent and start date are required.'); return
     }
     setSaving(true); setErr('')
-    const { error } = await supabase.from('tenancies').insert({
+    const { error } = await db.from('tenancies').insert({
       unit_id:        assignForm.unit_id,
       tenant_id:      assignForm.tenant_id,
       start_date:     assignForm.start_date,
@@ -201,7 +198,7 @@ export default function Tenants() {
       is_active:      true,
     })
     if (error) { setErr(error.message); setSaving(false); return }
-    await supabase.from('units').update({ is_occupied: true }).eq('id', assignForm.unit_id)
+    await db.from('units').update({ is_occupied: true }).eq('id', assignForm.unit_id)
     setModal(false)
     fetchData()
     setSaving(false)
@@ -209,14 +206,14 @@ export default function Tenants() {
 
   async function toggleActive(tenant) {
     if (!confirm(`${tenant.is_active ? 'Deactivate' : 'Activate'} ${tenant.full_name}?`)) return
-    await supabase.from('profiles').update({ is_active: !tenant.is_active }).eq('id', tenant.id)
+    await db.from('profiles').update({ is_active: !tenant.is_active }).eq('id', tenant.id)
     fetchData()
   }
 
   async function endTenancy(tenancy) {
     if (!confirm('End this tenancy? The unit will be marked as vacant.')) return
-    await supabase.from('tenancies').update({ is_active: false, end_date: new Date().toISOString().split('T')[0] }).eq('id', tenancy.id)
-    await supabase.from('units').update({ is_occupied: false }).eq('id', tenancy.unit_id)
+    await db.from('tenancies').update({ is_active: false, end_date: new Date().toISOString().split('T')[0] }).eq('id', tenancy.id)
+    await db.from('units').update({ is_occupied: false }).eq('id', tenancy.unit_id)
     fetchData()
   }
 

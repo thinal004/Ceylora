@@ -11,18 +11,18 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 const LKR = n => `LKR ${Number(n || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`
 
 export default function TenantHistory() {
-  const { profile } = useAuth()
+  const { profile, db } = useAuth()
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
   const [receiptModal, setReceiptModal] = useState(null)
   const [receiptUrl, setReceiptUrl] = useState(null)
 
-  useEffect(() => { fetchHistory() }, [])
+  useEffect(() => { fetchHistory() }, [db])
 
   async function fetchHistory() {
-    const { data: ten } = await supabase.from('tenancies').select('id').eq('tenant_id', profile.id).eq('is_active', true).single()
+    const { data: ten } = await db.from('tenancies').select('id').eq('tenant_id', profile.id).eq('is_active', true).single()
     if (!ten) { setLoading(false); return }
-    const { data } = await supabase.from('payments').select('*').eq('tenancy_id', ten.id).order('period_year', { ascending: false }).order('period_month', { ascending: false })
+    const { data } = await db.from('payments').select('*').eq('tenancy_id', ten.id).order('period_year', { ascending: false }).order('period_month', { ascending: false })
     setPayments(data || [])
     setLoading(false)
   }

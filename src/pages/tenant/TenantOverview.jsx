@@ -12,7 +12,7 @@ import Badge from '../../components/ui/Badge'
 const PAYMENT_METHODS = ['Bank Transfer','Cash','Cheque','Online Transfer','Other']
 
 export default function TenantOverview() {
-  const { profile } = useAuth()
+  const { profile, db } = useAuth()
   const [tenancy, setTenancy]       = useState(null)
   const [payments, setPayments]     = useState([])
   const [loading, setLoading]       = useState(true)
@@ -27,10 +27,10 @@ export default function TenantOverview() {
   const currentYear  = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { fetchData() }, [db])
 
   async function fetchData() {
-    const { data: ten } = await supabase.from('tenancies')
+    const { data: ten } = await db.from('tenancies')
       .select('*, units(unit_number, monthly_rent, electricity_charges, water_charges, deposit_amount, floor, properties(name, address, city))')
       .eq('tenant_id', profile.id)
       .eq('is_active', true)
@@ -39,7 +39,7 @@ export default function TenantOverview() {
     if (!ten) { setLoading(false); return }
     setTenancy(ten)
 
-    const { data: pays } = await supabase.from('payments')
+    const { data: pays } = await db.from('payments')
       .select('*')
       .eq('tenancy_id', ten.id)
       .order('period_year', { ascending: false })
@@ -84,9 +84,9 @@ export default function TenantOverview() {
         receipt_image:  form.receipt_image || null,
       }
       if (existing) {
-        await supabase.from('payments').update(payload).eq('id', existing.id)
+        await db.from('payments').update(payload).eq('id', existing.id)
       } else {
-        await supabase.from('payments').insert(payload)
+        await db.from('payments').insert(payload)
       }
       setPayModal(null); fetchData()
     } catch (e) {

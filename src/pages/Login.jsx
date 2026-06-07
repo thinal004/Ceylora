@@ -10,6 +10,8 @@ export default function Login() {
   const { t } = useLang()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [landlordCode, setLandlordCode] = useState('')
+  const [isTenant, setIsTenant] = useState(false)
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
 
@@ -18,7 +20,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await signInWithUsername(username.trim(), password)
+      await signInWithUsername(username.trim(), password, isTenant ? landlordCode.trim() : '')
     } catch (err) {
       setError(err.message || 'Invalid username or password.')
     } finally {
@@ -40,7 +42,32 @@ export default function Login() {
         </div>
 
         <div className="fade-up fade-up-1 login-card" style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'2rem', boxShadow:'var(--shadow-md)' }}>
+          {/* Tenant / staff toggle */}
+          <div style={{ display:'flex', gap:6, marginBottom:'1.25rem', background:'var(--surface2)', padding:4, borderRadius:'var(--radius)' }}>
+            <button type="button" onClick={() => setIsTenant(false)} style={{
+              flex:1, padding:'7px 0', border:'none', borderRadius:6, cursor:'pointer', fontFamily:'inherit', fontSize:13, fontWeight:500,
+              background: !isTenant ? 'var(--surface)' : 'transparent', color: !isTenant ? 'var(--accent)' : 'var(--text2)',
+              boxShadow: !isTenant ? 'var(--shadow)' : 'none',
+            }}>Admin / Landlord</button>
+            <button type="button" onClick={() => setIsTenant(true)} style={{
+              flex:1, padding:'7px 0', border:'none', borderRadius:6, cursor:'pointer', fontFamily:'inherit', fontSize:13, fontWeight:500,
+              background: isTenant ? 'var(--surface)' : 'transparent', color: isTenant ? 'var(--accent)' : 'var(--text2)',
+              boxShadow: isTenant ? 'var(--shadow)' : 'none',
+            }}>Tenant</button>
+          </div>
+
           <form onSubmit={handleSubmit}>
+            {isTenant && (
+              <Input
+                label="Landlord Code"
+                type="text"
+                value={landlordCode}
+                onChange={e => setLandlordCode(e.target.value.toUpperCase())}
+                placeholder="e.g. PERERA01"
+                required
+                autoComplete="off"
+              />
+            )}
             <Input
               label={t('username')}
               type="text"

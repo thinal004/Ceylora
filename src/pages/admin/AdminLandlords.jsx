@@ -11,13 +11,13 @@ import Badge from '../../components/ui/Badge'
 const EMPTY_FORM = {
   username:'', password:'', full_name:'', email:'', phone:'', nic:'',
   address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
-  db_url:'', db_anon_key:'', db_label:'',
+  db_url:'', db_anon_key:'', db_label:'', db_code:'',
 }
 
 const EMPTY_EDIT = {
   username:'', full_name:'', email:'', phone:'', nic:'',
   address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
-  db_url:'', db_anon_key:'', db_label:'', conn_id:null,
+  db_url:'', db_anon_key:'', db_label:'', db_code:'', conn_id:null,
 }
 
 export default function AdminLandlords() {
@@ -101,6 +101,7 @@ export default function AdminLandlords() {
         db_url:      conn.db_url      || '',
         db_anon_key: conn.db_anon_key || '',
         db_label:    conn.db_label    || '',
+        db_code:     conn.landlord_code || '',
         conn_id:     conn.id,
       }))
     }
@@ -139,11 +140,12 @@ export default function AdminLandlords() {
         // Save DB connection if provided
         if (form.db_url && form.db_anon_key) {
           await supabase.from('tenant_connections').insert({
-            landlord_id: result.userId,
-            db_url:      form.db_url.trim(),
-            db_anon_key: form.db_anon_key.trim(),
-            db_label:    form.db_label.trim() || null,
-            is_active:   true,
+            landlord_id:   result.userId,
+            db_url:        form.db_url.trim(),
+            db_anon_key:   form.db_anon_key.trim(),
+            db_label:      form.db_label.trim() || null,
+            landlord_code: form.db_code.trim().toUpperCase() || null,
+            is_active:     true,
           })
         }
       }
@@ -183,11 +185,12 @@ export default function AdminLandlords() {
       const hasConn = editForm.db_url && editForm.db_anon_key
       if (hasConn) {
         const payload = {
-          landlord_id: editTarget.id,
-          db_url:      editForm.db_url.trim(),
-          db_anon_key: editForm.db_anon_key.trim(),
-          db_label:    editForm.db_label.trim() || null,
-          is_active:   true,
+          landlord_id:   editTarget.id,
+          db_url:        editForm.db_url.trim(),
+          db_anon_key:   editForm.db_anon_key.trim(),
+          db_label:      editForm.db_label.trim() || null,
+          landlord_code: editForm.db_code.trim().toUpperCase() || null,
+          is_active:     true,
         }
         if (editForm.conn_id) {
           await supabase.from('tenant_connections').update(payload).eq('id', editForm.conn_id)
@@ -264,6 +267,7 @@ export default function AdminLandlords() {
 
         <SectionLabel text="Database Connection (optional)" />
         <ConnHint />
+        <Input label="Landlord Code" value={form.db_code} onChange={e => setForm(x => ({ ...x, db_code: e.target.value.toUpperCase() }))} placeholder="e.g. PERERA01" hint="Tenants enter this code to log in" />
         <Input label="Connection Label" value={form.db_label} onChange={set('db_label')} placeholder="e.g. Perera Properties Server" />
         <Input label="Supabase Project URL" value={form.db_url} onChange={set('db_url')} placeholder="https://xxxx.supabase.co" />
         <ConnKeyField value={form.db_anon_key} onChange={set('db_anon_key')} />
@@ -328,6 +332,7 @@ export default function AdminLandlords() {
 
         <SectionLabel text="Database Connection (optional)" />
         <ConnHint />
+        <Input label="Landlord Code" value={editForm.db_code} onChange={e => setEditForm(x => ({ ...x, db_code: e.target.value.toUpperCase() }))} placeholder="e.g. PERERA01" hint="Tenants enter this code to log in" />
         <Input label="Connection Label" value={editForm.db_label} onChange={setE('db_label')} placeholder="e.g. Perera Properties Server" />
         <Input label="Supabase Project URL" value={editForm.db_url} onChange={setE('db_url')} placeholder="https://xxxx.supabase.co" />
         <ConnKeyField value={editForm.db_anon_key} onChange={setE('db_anon_key')} />

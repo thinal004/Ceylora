@@ -14,7 +14,7 @@ const PROPERTY_TYPES = ['Residential','Commercial','Industrial','Mixed Use']
 const LKR = n => `LKR ${Number(n || 0).toLocaleString('en-LK', { minimumFractionDigits:2 })}`
 
 export default function Properties() {
-  const { profile } = useAuth()
+  const { profile, db } = useAuth()
   const [properties, setProperties] = useState([])
   const [loading, setLoading]       = useState(true)
   const [modal, setModal]           = useState(false)
@@ -28,12 +28,12 @@ export default function Properties() {
   const [successMsg, setSuccessMsg] = useState('')
   const [fetchErr, setFetchErr] = useState('')
 
-  useEffect(() => { fetchProperties() }, [])
+  useEffect(() => { fetchProperties() }, [db])
 
   async function fetchProperties() {
     setFetchErr('')
     // Fetch properties first
-    const { data: props, error: propErr } = await supabase
+    const { data: props, error: propErr } = await db
       .from('properties')
       .select('*')
       .eq('landlord_id', profile.id)
@@ -48,7 +48,7 @@ export default function Properties() {
     // Fetch units separately to avoid RLS join issues
     if (props && props.length > 0) {
       const propIds = props.map(p => p.id)
-      const { data: units, error: unitErr } = await supabase
+      const { data: units, error: unitErr } = await db
         .from('units')
         .select('id, unit_number, floor, monthly_rent, electricity_charges, water_charges, deposit_amount, is_occupied, description, property_id')
         .in('property_id', propIds)
@@ -96,9 +96,9 @@ export default function Properties() {
     }
     let error
     if (editing) {
-      ;({ error } = await supabase.from('properties').update(payload).eq('id', editing.id))
+      ;({ error } = await db.from('properties').update(payload).eq('id', editing.id))
     } else {
-      ;({ error } = await supabase.from('properties').insert({ ...payload, landlord_id: profile.id }))
+      ;({ error } = await db.from('properties').insert({ ...payload, landlord_id: profile.id }))
     }
     if (error) {
       setErr(error.message || 'Failed to save property.')
@@ -113,7 +113,7 @@ export default function Properties() {
 
   async function deleteProperty(id) {
     if (!confirm('Delete this property and all its units? This cannot be undone.')) return
-    await supabase.from('properties').delete().eq('id', id)
+    await db.from('properties').delete().eq('id', id)
     fetchProperties()
   }
 
@@ -150,10 +150,10 @@ export default function Properties() {
       description: unitForm.description,
     }
     if (editUnitModal) {
-      await supabase.from('units').update(payload).eq('id', editUnitModal.unit.id)
+      await db.from('units').update(payload).eq('id', editUnitModal.unit.id)
       setEditUnitModal(null)
     } else {
-      await supabase.from('units').insert({ ...payload, property_id: unitModal.id })
+      await db.from('units').insert({ ...payload, property_id: unitModal.id })
       setUnitModal(null)
     }
     setSaving(false)
@@ -163,7 +163,7 @@ export default function Properties() {
   async function deleteUnit(unitId, isOccupied) {
     if (isOccupied) { alert('Cannot delete an occupied unit. End the tenancy first.'); return }
     if (!confirm('Delete this unit?')) return
-    await supabase.from('units').delete().eq('id', unitId)
+    await db.from('units').delete().eq('id', unitId)
     fetchProperties()
   }
 
