@@ -8,6 +8,16 @@ import { Input } from '../../components/ui/Input'
 import Table, { Tr, Td } from '../../components/ui/Table'
 import Badge from '../../components/ui/Badge'
 
+// Random, non-sequential landlord code. Avoids ambiguous chars (0/O, 1/I/L).
+function genLandlordCode() {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let code = ''
+  const arr = new Uint32Array(8)
+  ;(window.crypto || window.msCrypto).getRandomValues(arr)
+  for (let i = 0; i < 8; i++) code += alphabet[arr[i] % alphabet.length]
+  return code
+}
+
 const EMPTY_FORM = {
   username:'', password:'', full_name:'', email:'', phone:'', nic:'',
   address_line1:'', address_line2:'', city:'', postal_code:'', country:'Sri Lanka',
@@ -67,7 +77,7 @@ export default function AdminLandlords() {
   }
 
   function openAdd() {
-    setForm(EMPTY_FORM)
+    setForm({ ...EMPTY_FORM, db_code: genLandlordCode() })
     setErr(''); setSuccessMsg(''); setTestResult(null); setModal('create')
   }
 
@@ -267,7 +277,7 @@ export default function AdminLandlords() {
 
         <SectionLabel text="Database Connection (optional)" />
         <ConnHint />
-        <Input label="Landlord Code" value={form.db_code} onChange={e => setForm(x => ({ ...x, db_code: e.target.value.toUpperCase() }))} placeholder="e.g. PERERA01" hint="Tenants enter this code to log in" />
+        <CodeField value={form.db_code} onGenerate={() => setForm(x => ({ ...x, db_code: genLandlordCode() }))} />
         <Input label="Connection Label" value={form.db_label} onChange={set('db_label')} placeholder="e.g. Perera Properties Server" />
         <Input label="Supabase Project URL" value={form.db_url} onChange={set('db_url')} placeholder="https://xxxx.supabase.co" />
         <ConnKeyField value={form.db_anon_key} onChange={set('db_anon_key')} />
@@ -281,6 +291,20 @@ export default function AdminLandlords() {
     return (
       <div style={{ background:'var(--blue-bg)', border:'1px solid #BFDBFE', borderRadius:'var(--radius)', padding:'9px 12px', marginBottom:10, fontSize:12, color:'var(--blue-text)' }}>
         Leave blank to use the shared master database. Enter the landlord's own Supabase project to isolate their tenants & data. Use the <strong>anon</strong> key only — never the service_role key.
+      </div>
+    )
+  }
+  function CodeField({ value, onGenerate }) {
+    return (
+      <div style={{ marginBottom:10 }}>
+        <label style={{ display:'block', fontSize:13, fontWeight:500, marginBottom:6 }}>Landlord Code <span style={{ fontSize:11, color:'var(--text3)', fontWeight:400 }}>(tenants enter this to log in)</span></label>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <div style={{ flex:1, fontFamily:'monospace', fontSize:18, fontWeight:600, letterSpacing:'2px', padding:'9px 12px', borderRadius:'var(--radius)', border:'1px solid var(--border)', background:'var(--surface2)', color:'var(--text)', textAlign:'center' }}>
+            {value || '—'}
+          </div>
+          <Button size="sm" variant="ghost" type="button" onClick={onGenerate}>↻ Generate</Button>
+        </div>
+        <div style={{ fontSize:11, color:'var(--text3)', marginTop:4 }}>Auto-generated &amp; random. Share it only with this landlord's tenants.</div>
       </div>
     )
   }
@@ -332,7 +356,7 @@ export default function AdminLandlords() {
 
         <SectionLabel text="Database Connection (optional)" />
         <ConnHint />
-        <Input label="Landlord Code" value={editForm.db_code} onChange={e => setEditForm(x => ({ ...x, db_code: e.target.value.toUpperCase() }))} placeholder="e.g. PERERA01" hint="Tenants enter this code to log in" />
+        <CodeField value={editForm.db_code} onGenerate={() => setEditForm(x => ({ ...x, db_code: genLandlordCode() }))} />
         <Input label="Connection Label" value={editForm.db_label} onChange={setE('db_label')} placeholder="e.g. Perera Properties Server" />
         <Input label="Supabase Project URL" value={editForm.db_url} onChange={setE('db_url')} placeholder="https://xxxx.supabase.co" />
         <ConnKeyField value={editForm.db_anon_key} onChange={setE('db_anon_key')} />
