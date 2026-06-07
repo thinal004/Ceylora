@@ -379,28 +379,55 @@ export default function Tenants() {
 
       {/* ── Edit Tenant Modal ── */}
       <Modal open={modal === 'edit'} onClose={() => setModal(false)} title="Edit Tenant" maxWidth={520}>
-        {editTarget && (
-          <>
-            <Input label="Full Name *" value={editForm.full_name} onChange={setE('full_name')} placeholder="e.g. Kasun Silva" />
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              <Input label="Phone *"        value={editForm.phone} onChange={setE('phone')} placeholder="0771234567" />
-              <Input label="NIC / Passport" value={editForm.nic}   onChange={setE('nic')}   placeholder="National ID" />
-            </div>
-            <Input label="Email (optional)" type="email" value={editForm.email}   onChange={setE('email')}   placeholder="tenant@example.com" />
-            <Input label="Address"                       value={editForm.address} onChange={setE('address')} placeholder="Permanent address" />
-            <ImageInput label="Photo" value={editForm.photo} onChange={v => setEditForm(f => ({ ...f, photo: v }))} hint="Auto compressed" />
-            <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', margin:'12px 0 8px', paddingTop:8, borderTop:'1px solid var(--border)' }}>Emergency Contact</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              <Input label="Contact Name"  value={editForm.emergency_contact_name}  onChange={setE('emergency_contact_name')}  placeholder="Name" />
-              <Input label="Contact Phone" value={editForm.emergency_contact_phone} onChange={setE('emergency_contact_phone')} placeholder="Phone" />
-            </div>
-            {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', margin:'12px 0' }}>{err}</div>}
-            <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
-              <Button fullWidth loading={saving} onClick={handleEdit}>Save Changes</Button>
-              <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
-            </div>
-          </>
-        )}
+        {editTarget && (() => {
+          const tenancy = getTenancy(editTarget.id)
+          return (
+            <>
+              {/* Tenancy Info (read-only) */}
+              {tenancy && (
+                <div style={{ background:'var(--surface2)', borderRadius:'var(--radius)', padding:'12px 14px', marginBottom:'1rem', border:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Current Tenancy</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                    {[
+                      ['Unit',           tenancy.units?.unit_number || '—'],
+                      ['Monthly Rent',   LKR(tenancy.monthly_rent)],
+                      ['Rent Due Day',   `${tenancy.rent_due_day || 1}${['st','nd','rd'][((tenancy.rent_due_day||1)%10)-1] || 'th'} of month`],
+                      ['Start Date',     tenancy.start_date ? new Date(tenancy.start_date).toLocaleDateString('en-LK') : '—'],
+                      ['Deposit',        LKR(tenancy.deposit_amount || 0)],
+                      ['Notes',          tenancy.notes || '—'],
+                    ].map(([label, value]) => (
+                      <div key={label} style={{ background:'var(--surface)', borderRadius:'var(--radius)', padding:'8px 10px' }}>
+                        <div style={{ fontSize:10, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:2 }}>{label}</div>
+                        <div style={{ fontSize:13, fontWeight:500 }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Personal Info */}
+              <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Personal Information</div>
+              <Input label="Full Name *" value={editForm.full_name} onChange={setE('full_name')} placeholder="e.g. Kasun Silva" />
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                <Input label="Phone *"        value={editForm.phone} onChange={setE('phone')} placeholder="0771234567" />
+                <Input label="NIC / Passport" value={editForm.nic}   onChange={setE('nic')}   placeholder="National ID" />
+              </div>
+              <Input label="Email (optional)" type="email" value={editForm.email}   onChange={setE('email')}   placeholder="tenant@example.com" />
+              <Input label="Address"                       value={editForm.address} onChange={setE('address')} placeholder="Permanent address" />
+              <ImageInput label="Photo" value={editForm.photo} onChange={v => setEditForm(f => ({ ...f, photo: v }))} hint="Auto compressed" />
+              <div style={{ fontSize:11, fontWeight:600, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', margin:'12px 0 8px', paddingTop:8, borderTop:'1px solid var(--border)' }}>Emergency Contact</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                <Input label="Contact Name"  value={editForm.emergency_contact_name}  onChange={setE('emergency_contact_name')}  placeholder="Name" />
+                <Input label="Contact Phone" value={editForm.emergency_contact_phone} onChange={setE('emergency_contact_phone')} placeholder="Phone" />
+              </div>
+              {err && <div style={{ background:'var(--red-bg)', color:'var(--red-text)', fontSize:13, padding:'10px 14px', borderRadius:'var(--radius)', margin:'12px 0' }}>{err}</div>}
+              <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
+                <Button fullWidth loading={saving} onClick={handleEdit}>Save Changes</Button>
+                <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
+              </div>
+            </>
+          )
+        })()}
       </Modal>
 
       {/* ── Assign Unit Modal ── */}

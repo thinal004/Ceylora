@@ -9,8 +9,9 @@ export default function AdminLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navItems = [
-    { to: '/admin',           label: 'Dashboard', icon: '▦', end: true },
-    { to: '/admin/landlords', label: 'Landlords', icon: '🏢' },
+    { to: '/admin',             label: 'Dashboard',   icon: '▦',  end: true },
+    { to: '/admin/landlords',   label: 'Landlords',   icon: '🏢' },
+    { to: '/admin/connections', label: 'DB Connections', icon: '🔌' },
   ]
 
   async function handleSignOut() {

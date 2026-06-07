@@ -1,15 +1,54 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Check Netlify environment settings.')
 }
 
+// ── Master client (Ceylora's own Supabase) ───────────────────
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: true, autoRefreshToken: true }
 })
+
+// ── Dynamic per-landlord client cache ────────────────────────
+const _clientCache = {}
+
+/**
+ * Returns a Supabase client pointed at the landlord's own database server.
+ * Falls back to the master client if no custom connection is configured.
+ *
+ * @param {string} landlordId - UUID of the landlord profile
+ * @returns {import('@supabase/supabase-js').SupabaseClient}
+ */
+export async function getDbForLandlord(landlordId) {
+  if (!landlordId) return supabase
+
+  // Return cached client if already created this session
+  if (_clientCache[landlordId]) return _clientCache[landlordId]
+
+  // Look up custom connection record in master DB
+  const { data, error } = await supabase
+    .from('tenant_connections')
+    .select('db_url, db_anon_key, is_active')
+    .eq('landlord_id', landlordId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (error || !data) return supabase  // no custom connection → use master
+
+  const client = createClient(data.db_url, data.db_anon_key, {
+    auth: { persistSession: false }   // tenant DB has no Ceylora auth users
+  })
+  _clientCache[landlordId] = client
+  return client
+}
+
+/** Clear cached client for a landlord (call after updating connection settings) */
+export function evictDbCache(landlordId) {
+  delete _clientCache[landlordId]
+}
 
 // ── User Creation via Netlify Function ──────────────────────
 export async function createUser({ username, password, email, fullName, phone, nic, role, address, emergencyContactName, emergencyContactPhone, landlordId }) {

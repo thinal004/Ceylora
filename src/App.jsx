@@ -3,9 +3,10 @@ import { useAuth } from './contexts/AuthContext'
 import Login          from './pages/Login'
 import ChangePassword from './pages/ChangePassword'
 
-import AdminLayout    from './pages/admin/AdminLayout'
-import AdminDashboard from './pages/admin/AdminDashboard'
-import AdminLandlords from './pages/admin/AdminLandlords'
+import AdminLayout      from './pages/admin/AdminLayout'
+import AdminDashboard   from './pages/admin/AdminDashboard'
+import AdminLandlords   from './pages/admin/AdminLandlords'
+import AdminConnections from './pages/admin/AdminConnections'
 
 import LandlordLayout from './pages/landlord/LandlordLayout'
 import Dashboard      from './pages/landlord/Dashboard'
@@ -67,7 +68,8 @@ export default function App() {
       {/* Super Admin */}
       <Route path="/admin" element={<PrivateRoute role="super_admin"><AdminLayout /></PrivateRoute>}>
         <Route index element={<AdminDashboard />} />
-        <Route path="landlords" element={<AdminLandlords />} />
+        <Route path="landlords"   element={<AdminLandlords />} />
+        <Route path="connections" element={<AdminConnections />} />
       </Route>
 
       {/* Landlord */}
